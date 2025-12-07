@@ -94,3 +94,16 @@ This project uses golangci-lint v2 with configuration in `.golangci.yml`. The co
 - Uses standard default linters (errcheck, govet, ineffassign, staticcheck, unused)
 - Excludes errcheck for test files
 - Excludes errcheck for common defer patterns (Close, Sync)
+
+## Security Considerations
+
+- **Read-only tool**: This library only reads log files, never writes
+- **No external command execution**: No `os/exec` usage
+- **Symlink resolution**: `FindLogDir()` uses `filepath.EvalSymlinks()` to prevent symlink attacks (works with Windows Junctions in Go 1.20+)
+- **Error message sanitization**: User paths are not included in error messages to prevent information leakage
+- **ReplayLastN limit**: Default maximum of 10000 lines (`DefaultMaxReplayLastN`) to prevent memory exhaustion; configurable via `WatchOptions.MaxReplayLines`
+
+## Testing Notes
+
+- macOS uses `/var` as a symlink to `/private/var`, so tests comparing paths must use `filepath.EvalSymlinks()` for expected values
+- Use `t.TempDir()` for temporary test directories (auto-cleanup)

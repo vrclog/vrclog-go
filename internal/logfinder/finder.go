@@ -51,27 +51,28 @@ func DefaultLogDirs() []string {
 //  3. Auto-detect from DefaultLogDirs()
 //
 // Returns ErrLogDirNotFound if no valid directory is found.
+// The returned path has symlinks resolved for consistency.
 func FindLogDir(explicit string) (string, error) {
 	// 1. Check explicit
 	if explicit != "" {
-		if isValidLogDir(explicit) {
-			return explicit, nil
+		if resolved := resolveAndValidateLogDir(explicit); resolved != "" {
+			return resolved, nil
 		}
-		return "", fmt.Errorf("%w: %s", ErrLogDirNotFound, explicit)
+		return "", fmt.Errorf("%w: specified directory is invalid or contains no log files", ErrLogDirNotFound)
 	}
 
 	// 2. Check environment variable
 	if envDir := os.Getenv(EnvLogDir); envDir != "" {
-		if isValidLogDir(envDir) {
-			return envDir, nil
+		if resolved := resolveAndValidateLogDir(envDir); resolved != "" {
+			return resolved, nil
 		}
-		return "", fmt.Errorf("%w: %s (from %s)", ErrLogDirNotFound, envDir, EnvLogDir)
+		return "", fmt.Errorf("%w: %s environment variable points to invalid directory", ErrLogDirNotFound, EnvLogDir)
 	}
 
 	// 3. Auto-detect
 	for _, dir := range DefaultLogDirs() {
-		if isValidLogDir(dir) {
-			return dir, nil
+		if resolved := resolveAndValidateLogDir(dir); resolved != "" {
+			return resolved, nil
 		}
 	}
 
@@ -106,15 +107,30 @@ func FindLatestLogFile(dir string) (string, error) {
 	return matches[0], nil
 }
 
-// isValidLogDir checks if the directory exists and contains log files.
-func isValidLogDir(dir string) bool {
+// resolveAndValidateLogDir resolves symlinks and validates the directory.
+// Returns the resolved path if valid, empty string otherwise.
+// This helps prevent symlink-based attacks and ensures path consistency.
+func resolveAndValidateLogDir(dir string) string {
+	// First check if path exists
 	info, err := os.Stat(dir)
 	if err != nil || !info.IsDir() {
-		return false
+		return ""
 	}
 
-	// Check if there are any output_log files
-	pattern := filepath.Join(dir, "output_log_*.txt")
-	matches, _ := filepath.Glob(pattern)
-	return len(matches) > 0
+	// Resolve symlinks (works with Windows Junctions in Go 1.20+)
+	resolved, err := filepath.EvalSymlinks(dir)
+	if err != nil {
+		// Fallback to original path if symlink resolution fails
+		// (e.g., permission issues, broken links)
+		resolved = dir
+	}
+
+	// Check for log files in resolved path
+	pattern := filepath.Join(resolved, "output_log_*.txt")
+	matches, err := filepath.Glob(pattern)
+	if err != nil || len(matches) == 0 {
+		return ""
+	}
+
+	return resolved
 }

@@ -26,6 +26,10 @@ const (
 	ReplaySinceTime
 )
 
+// DefaultMaxReplayLastN is the default maximum lines for ReplayLastN mode.
+// This limits memory usage to roughly tens of MB for typical VRChat logs.
+const DefaultMaxReplayLastN = 10000
+
 // ReplayConfig configures replay behavior.
 // Only one mode can be active at a time (mutually exclusive).
 type ReplayConfig struct {
@@ -53,6 +57,10 @@ type WatchOptions struct {
 	// Replay configures replay behavior for existing log lines.
 	// Default: ReplayNone (only new lines).
 	Replay ReplayConfig
+
+	// MaxReplayLines is the maximum lines to replay in ReplayLastN mode.
+	// 0 uses default (10000). Set to -1 for unlimited (not recommended).
+	MaxReplayLines int
 }
 
 // Validate checks for invalid option combinations.
@@ -60,6 +68,17 @@ func (o WatchOptions) Validate() error {
 	// Validate ReplayLastN
 	if o.Replay.Mode == ReplayLastN && o.Replay.LastN < 0 {
 		return fmt.Errorf("replay LastN must be non-negative, got %d", o.Replay.LastN)
+	}
+
+	// Validate ReplayLastN against maximum limit
+	if o.Replay.Mode == ReplayLastN {
+		maxLines := o.MaxReplayLines
+		if maxLines == 0 {
+			maxLines = DefaultMaxReplayLastN
+		}
+		if maxLines > 0 && o.Replay.LastN > maxLines {
+			return fmt.Errorf("replay LastN (%d) exceeds maximum of %d", o.Replay.LastN, maxLines)
+		}
 	}
 
 	// Validate ReplaySinceTime

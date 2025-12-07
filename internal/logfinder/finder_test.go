@@ -74,8 +74,14 @@ func TestFindLogDir_EnvVar(t *testing.T) {
 	if err != nil {
 		t.Fatalf("FindLogDir() error = %v", err)
 	}
-	if got != dir {
-		t.Errorf("FindLogDir() = %v, want %v", got, dir)
+
+	// Resolve symlinks in expected path for comparison (e.g., /var -> /private/var on macOS)
+	want, _ := filepath.EvalSymlinks(dir)
+	if want == "" {
+		want = dir
+	}
+	if got != want {
+		t.Errorf("FindLogDir() = %v, want %v", got, want)
 	}
 }
 
@@ -96,8 +102,14 @@ func TestFindLogDir_Explicit(t *testing.T) {
 	if err != nil {
 		t.Fatalf("FindLogDir() error = %v", err)
 	}
-	if got != dir {
-		t.Errorf("FindLogDir() = %v, want %v", got, dir)
+
+	// Resolve symlinks in expected path for comparison (e.g., /var -> /private/var on macOS)
+	want, _ := filepath.EvalSymlinks(dir)
+	if want == "" {
+		want = dir
+	}
+	if got != want {
+		t.Errorf("FindLogDir() = %v, want %v", got, want)
 	}
 }
 
@@ -126,7 +138,7 @@ func TestFindLogDir_EnvVarInvalid(t *testing.T) {
 	}
 }
 
-func TestIsValidLogDir(t *testing.T) {
+func TestResolveAndValidateLogDir(t *testing.T) {
 	// Create temp directory with log file
 	dir := t.TempDir()
 	logFile := filepath.Join(dir, "output_log_test.txt")
@@ -134,21 +146,24 @@ func TestIsValidLogDir(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if !isValidLogDir(dir) {
-		t.Error("isValidLogDir() = false, want true for valid dir")
+	resolved := resolveAndValidateLogDir(dir)
+	if resolved == "" {
+		t.Error("resolveAndValidateLogDir() = empty, want non-empty for valid dir")
 	}
 }
 
-func TestIsValidLogDir_Empty(t *testing.T) {
+func TestResolveAndValidateLogDir_Empty(t *testing.T) {
 	dir := t.TempDir()
 
-	if isValidLogDir(dir) {
-		t.Error("isValidLogDir() = true, want false for empty dir")
+	resolved := resolveAndValidateLogDir(dir)
+	if resolved != "" {
+		t.Error("resolveAndValidateLogDir() = non-empty, want empty for dir without log files")
 	}
 }
 
-func TestIsValidLogDir_NotExists(t *testing.T) {
-	if isValidLogDir("/nonexistent/path") {
-		t.Error("isValidLogDir() = true, want false for nonexistent path")
+func TestResolveAndValidateLogDir_NotExists(t *testing.T) {
+	resolved := resolveAndValidateLogDir("/nonexistent/path")
+	if resolved != "" {
+		t.Error("resolveAndValidateLogDir() = non-empty, want empty for nonexistent path")
 	}
 }
