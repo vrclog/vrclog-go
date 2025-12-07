@@ -67,7 +67,10 @@ func ExampleNewWatcher() {
 	defer watcher.Close()
 
 	// Start watching
-	events, errs := watcher.Watch(ctx)
+	events, errs, err := watcher.Watch(ctx)
+	if err != nil {
+		log.Fatal(err)
+	}
 
 	for {
 		select {

@@ -104,7 +104,10 @@ func TestWatcher_ReceivesEvents(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	events, errs := watcher.Watch(ctx)
+	events, errs, err := watcher.Watch(ctx)
+	if err != nil {
+		t.Fatalf("Watch() error = %v", err)
+	}
 
 	// Give watcher time to start
 	time.Sleep(100 * time.Millisecond)
@@ -146,7 +149,10 @@ func TestWatcher_ContextCancel(t *testing.T) {
 	defer watcher.Close()
 
 	ctx, cancel := context.WithCancel(context.Background())
-	events, _ := watcher.Watch(ctx)
+	events, _, err := watcher.Watch(ctx)
+	if err != nil {
+		t.Fatalf("Watch() error = %v", err)
+	}
 
 	// Cancel context
 	cancel()
@@ -202,7 +208,10 @@ func TestWatcher_CloseStopsGoroutine(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	events, _ := watcher.Watch(ctx)
+	events, _, err := watcher.Watch(ctx)
+	if err != nil {
+		t.Fatalf("Watch() error = %v", err)
+	}
 
 	// Give goroutine time to start
 	time.Sleep(50 * time.Millisecond)
@@ -251,27 +260,21 @@ func TestWatcher_WatchAfterClose(t *testing.T) {
 	// Close before watching
 	watcher.Close()
 
-	// Watch after close should return closed channels
+	// Watch after close should return ErrWatcherClosed
 	ctx := context.Background()
-	events, errs := watcher.Watch(ctx)
+	events, errs, err := watcher.Watch(ctx)
 
-	// Channels should be immediately closed
-	select {
-	case _, ok := <-events:
-		if ok {
-			t.Error("expected events channel to be closed")
-		}
-	case <-time.After(time.Second):
-		t.Error("timeout waiting for events channel")
+	if err == nil {
+		t.Fatal("Watch() after Close() should return error")
 	}
-
-	select {
-	case _, ok := <-errs:
-		if ok {
-			t.Error("expected errs channel to be closed")
-		}
-	case <-time.After(time.Second):
-		t.Error("timeout waiting for errs channel")
+	if !errors.Is(err, vrclog.ErrWatcherClosed) {
+		t.Errorf("Watch() error = %v, want %v", err, vrclog.ErrWatcherClosed)
+	}
+	if events != nil {
+		t.Error("expected events channel to be nil")
+	}
+	if errs != nil {
+		t.Error("expected errs channel to be nil")
 	}
 }
 
@@ -292,17 +295,24 @@ func TestWatcher_WatchCalledTwice(t *testing.T) {
 	defer watcher.Close()
 
 	ctx := context.Background()
-	events1, _ := watcher.Watch(ctx)
-	events2, _ := watcher.Watch(ctx)
+	events1, _, err := watcher.Watch(ctx)
+	if err != nil {
+		t.Fatalf("first Watch() error = %v", err)
+	}
 
-	// Second Watch should return closed channels (not allowed to watch twice)
-	select {
-	case _, ok := <-events2:
-		if ok {
-			t.Error("expected second events channel to be closed")
-		}
-	case <-time.After(time.Second):
-		t.Error("timeout waiting for second events channel")
+	// Second Watch should return ErrAlreadyWatching
+	events2, errs2, err := watcher.Watch(ctx)
+	if err == nil {
+		t.Fatal("second Watch() should return error")
+	}
+	if !errors.Is(err, vrclog.ErrAlreadyWatching) {
+		t.Errorf("second Watch() error = %v, want %v", err, vrclog.ErrAlreadyWatching)
+	}
+	if events2 != nil {
+		t.Error("expected second events channel to be nil")
+	}
+	if errs2 != nil {
+		t.Error("expected second errs channel to be nil")
 	}
 
 	// First events channel should still be open
@@ -448,7 +458,10 @@ func TestWatcher_IncludeRawLine(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	events, errs := watcher.Watch(ctx)
+	events, errs, err := watcher.Watch(ctx)
+	if err != nil {
+		t.Fatalf("Watch() error = %v", err)
+	}
 
 	// Give watcher time to start
 	time.Sleep(100 * time.Millisecond)
@@ -493,7 +506,10 @@ func TestWatcher_ReplayFromStart(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	events, errs := watcher.Watch(ctx)
+	events, errs, err := watcher.Watch(ctx)
+	if err != nil {
+		t.Fatalf("Watch() error = %v", err)
+	}
 
 	// Should receive existing event
 	select {
@@ -538,7 +554,10 @@ func TestWatcher_ReplayLastN(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	events, errs := watcher.Watch(ctx)
+	events, errs, err := watcher.Watch(ctx)
+	if err != nil {
+		t.Fatalf("Watch() error = %v", err)
+	}
 
 	// Should receive last 2 events (User4 and User5)
 	expected := []string{"User4", "User5"}
@@ -588,7 +607,10 @@ func TestWatcher_ReplaySinceTime(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	events, errs := watcher.Watch(ctx)
+	events, errs, err := watcher.Watch(ctx)
+	if err != nil {
+		t.Fatalf("Watch() error = %v", err)
+	}
 
 	// Should receive only events after 13:00 (NewUser1, NewUser2)
 	expected := []string{"NewUser1", "NewUser2"}

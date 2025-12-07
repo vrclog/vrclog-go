@@ -3,6 +3,8 @@ package vrclog
 import (
 	"context"
 	"fmt"
+	"io"
+	"log/slog"
 	"os"
 	"sync"
 	"time"
@@ -29,6 +31,11 @@ const (
 // DefaultMaxReplayLastN is the default maximum lines for ReplayLastN mode.
 // This limits memory usage to roughly tens of MB for typical VRChat logs.
 const DefaultMaxReplayLastN = 10000
+
+// watcherErrBuffer is the buffer size for the error channel.
+// A small buffer prevents error loss during brief moments when the consumer
+// is busy processing events, while keeping memory usage minimal.
+const watcherErrBuffer = 16
 
 // ReplayConfig configures replay behavior.
 // Only one mode can be active at a time (mutually exclusive).
@@ -61,6 +68,10 @@ type WatchOptions struct {
 	// MaxReplayLines is the maximum lines to replay in ReplayLastN mode.
 	// 0 uses default (10000). Set to -1 for unlimited (not recommended).
 	MaxReplayLines int
+
+	// Logger is the slog logger for debug output.
+	// If nil, logging is disabled.
+	Logger *slog.Logger
 }
 
 // Validate checks for invalid option combinations.
@@ -98,6 +109,7 @@ func (o WatchOptions) Validate() error {
 type Watcher struct {
 	opts   WatchOptions
 	logDir string
+	log    *slog.Logger
 
 	mu       sync.Mutex
 	closed   bool
@@ -105,6 +117,9 @@ type Watcher struct {
 	doneCh   chan struct{}      // signals when goroutine has exited
 	watching bool               // true if Watch() has been called
 }
+
+// discardLogger returns a logger that discards all output.
+var discardLogger = slog.New(slog.NewTextHandler(io.Discard, nil))
 
 // NewWatcher creates a watcher.
 // Validates options and checks log directory existence.
@@ -121,9 +136,16 @@ func NewWatcher(opts WatchOptions) (*Watcher, error) {
 		return nil, err
 	}
 
+	// Initialize logger (use discard logger if not provided)
+	log := opts.Logger
+	if log == nil {
+		log = discardLogger
+	}
+
 	return &Watcher{
 		opts:   opts,
 		logDir: logDir,
+		log:    log,
 	}, nil
 }
 
@@ -132,25 +154,18 @@ func NewWatcher(opts WatchOptions) (*Watcher, error) {
 // When ctx is cancelled, channels are closed automatically.
 // Both channels close on ctx.Done() or fatal error.
 // Watch can only be called once per Watcher instance.
-func (w *Watcher) Watch(ctx context.Context) (<-chan Event, <-chan error) {
+//
+// Returns ErrWatcherClosed if the watcher has been closed.
+// Returns ErrAlreadyWatching if Watch() has already been called.
+func (w *Watcher) Watch(ctx context.Context) (<-chan Event, <-chan error, error) {
 	w.mu.Lock()
+	defer w.mu.Unlock()
+
 	if w.closed {
-		w.mu.Unlock()
-		// Return closed channels if already closed
-		eventCh := make(chan Event)
-		errCh := make(chan error)
-		close(eventCh)
-		close(errCh)
-		return eventCh, errCh
+		return nil, nil, ErrWatcherClosed
 	}
 	if w.watching {
-		w.mu.Unlock()
-		// Return closed channels if already watching
-		eventCh := make(chan Event)
-		errCh := make(chan error)
-		close(eventCh)
-		close(errCh)
-		return eventCh, errCh
+		return nil, nil, ErrAlreadyWatching
 	}
 	w.watching = true
 
@@ -158,14 +173,13 @@ func (w *Watcher) Watch(ctx context.Context) (<-chan Event, <-chan error) {
 	ctx, cancel := context.WithCancel(ctx)
 	w.cancel = cancel
 	w.doneCh = make(chan struct{})
-	w.mu.Unlock()
 
 	eventCh := make(chan Event)
-	errCh := make(chan error)
+	errCh := make(chan error, watcherErrBuffer)
 
 	go w.run(ctx, eventCh, errCh)
 
-	return eventCh, errCh
+	return eventCh, errCh, nil
 }
 
 // Close stops the watcher and releases resources.
@@ -201,9 +215,10 @@ func (w *Watcher) run(ctx context.Context, eventCh chan<- Event, errCh chan<- er
 	// Find latest log file
 	logFile, err := logfinder.FindLatestLogFile(w.logDir)
 	if err != nil {
-		sendError(errCh, err)
+		sendError(ctx, errCh, &WatchError{Op: WatchOpFindLatest, Err: err})
 		return
 	}
+	w.log.Debug("found latest log file", "path", logFile)
 
 	// Configure tailer
 	cfg := tailer.DefaultConfig()
@@ -213,8 +228,9 @@ func (w *Watcher) run(ctx context.Context, eventCh chan<- Event, errCh chan<- er
 
 	// Handle ReplayLastN: read last N lines first, then tail from end
 	if w.opts.Replay.Mode == ReplayLastN && w.opts.Replay.LastN > 0 {
+		w.log.Debug("replaying last N lines", "n", w.opts.Replay.LastN, "path", logFile)
 		if err := w.replayLastN(ctx, logFile, eventCh, errCh); err != nil {
-			sendError(errCh, fmt.Errorf("replaying last N lines: %w", err))
+			sendError(ctx, errCh, &WatchError{Op: WatchOpReplay, Path: logFile, Err: err})
 		}
 		cfg.FromStart = false // Continue from end after replay
 	}
@@ -222,9 +238,10 @@ func (w *Watcher) run(ctx context.Context, eventCh chan<- Event, errCh chan<- er
 	// Start tailer
 	t, err := tailer.New(ctx, logFile, cfg)
 	if err != nil {
-		sendError(errCh, fmt.Errorf("starting tailer: %w", err))
+		sendError(ctx, errCh, &WatchError{Op: WatchOpTail, Path: logFile, Err: err})
 		return
 	}
+	w.log.Debug("started tailing", "path", logFile, "from_start", cfg.FromStart)
 
 	// Set poll interval for log rotation check
 	pollInterval := w.opts.PollInterval
@@ -251,22 +268,23 @@ func (w *Watcher) run(ctx context.Context, eventCh chan<- Event, errCh chan<- er
 			if !ok {
 				return
 			}
-			sendError(errCh, err)
+			sendError(ctx, errCh, err)
 		case <-rotationTicker.C:
 			// Check for new log file (log rotation)
 			newFile, err := logfinder.FindLatestLogFile(w.logDir)
 			if err != nil {
-				sendError(errCh, fmt.Errorf("checking for new log file: %w", err))
+				sendError(ctx, errCh, &WatchError{Op: WatchOpRotation, Err: err})
 				continue
 			}
 			if newFile != currentFile {
 				// New log file found, switch to it
+				w.log.Debug("log rotation detected", "from", currentFile, "to", newFile)
 				_ = t.Stop()
 				cfg := tailer.DefaultConfig()
 				cfg.FromStart = true // Read new file from start
 				newTailer, err := tailer.New(ctx, newFile, cfg)
 				if err != nil {
-					sendError(errCh, fmt.Errorf("switching to new log file: %w", err))
+					sendError(ctx, errCh, &WatchError{Op: WatchOpTail, Path: newFile, Err: err})
 					continue
 				}
 				t = newTailer
@@ -279,7 +297,7 @@ func (w *Watcher) run(ctx context.Context, eventCh chan<- Event, errCh chan<- er
 func (w *Watcher) processLine(ctx context.Context, line string, eventCh chan<- Event, errCh chan<- error) {
 	ev, err := parser.Parse(line)
 	if err != nil {
-		sendError(errCh, fmt.Errorf("parse error: %w", err))
+		sendError(ctx, errCh, &ParseError{Line: line, Err: err})
 		return
 	}
 	if ev == nil {
@@ -416,22 +434,28 @@ func extractLines(buffer []byte, n int) []string {
 	return lines
 }
 
-// sendError sends an error non-blocking.
-func sendError(errCh chan<- error, err error) {
+// sendError sends an error to the error channel.
+// With a buffered channel, errors are only dropped if the buffer is full.
+// The context case ensures we don't block during shutdown.
+func sendError(ctx context.Context, errCh chan<- error, err error) {
+	if err == nil {
+		return
+	}
 	select {
 	case errCh <- err:
+	case <-ctx.Done():
+		// Don't block during shutdown
 	default:
-		// Drop error if channel is full
+		// Drop error only if buffer is full (rare with buffer size 16)
 	}
 }
 
 // Watch is a convenience function that creates a watcher and starts watching.
-// Returns error immediately for initialization failures.
+// Returns error immediately for initialization failures or if watch fails to start.
 func Watch(ctx context.Context, opts WatchOptions) (<-chan Event, <-chan error, error) {
 	w, err := NewWatcher(opts)
 	if err != nil {
 		return nil, nil, err
 	}
-	events, errs := w.Watch(ctx)
-	return events, errs, nil
+	return w.Watch(ctx)
 }

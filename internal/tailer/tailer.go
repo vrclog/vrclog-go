@@ -9,6 +9,11 @@ import (
 	"github.com/nxadm/tail"
 )
 
+// tailerErrBuffer is the buffer size for the error channel.
+// A small buffer prevents error loss during brief moments when the consumer
+// is busy processing lines.
+const tailerErrBuffer = 16
+
 // Tailer wraps nxadm/tail for VRChat log file tailing.
 type Tailer struct {
 	t      *tail.Tail
@@ -78,7 +83,7 @@ func New(ctx context.Context, filepath string, cfg Config) (*Tailer, error) {
 		ctx:    ctx,
 		cancel: cancel,
 		lines:  make(chan string),
-		errors: make(chan error),
+		errors: make(chan error, tailerErrBuffer),
 		doneCh: make(chan struct{}),
 	}
 
@@ -128,11 +133,14 @@ func (t *Tailer) run() {
 				return
 			}
 			if line.Err != nil {
-				// Non-blocking error send
+				// Send error with context awareness
+				// With buffered channel, errors are only dropped if buffer is full
 				select {
 				case t.errors <- fmt.Errorf("tail: %w", line.Err):
+				case <-t.ctx.Done():
+					return
 				default:
-					// Drop error if channel is full/not read
+					// Drop error only if buffer is full (rare with buffer size 16)
 				}
 				continue
 			}

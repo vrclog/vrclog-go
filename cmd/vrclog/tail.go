@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"os"
 	"os/signal"
 	"syscall"
@@ -131,11 +132,20 @@ func runTail(cmd *cobra.Command, args []string) error {
 		replay.Since = t
 	}
 
+	// Setup logger based on verbose flag
+	var logger *slog.Logger
+	if verbose {
+		logger = slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
+			Level: slog.LevelDebug,
+		}))
+	}
+
 	// Build options
 	opts := vrclog.WatchOptions{
 		LogDir:         logDir,
 		IncludeRawLine: includeRaw,
 		Replay:         replay,
+		Logger:         logger,
 	}
 
 	// Validate options
@@ -151,7 +161,10 @@ func runTail(cmd *cobra.Command, args []string) error {
 	defer watcher.Close()
 
 	// Start watching
-	events, errs := watcher.Watch(ctx)
+	events, errs, err := watcher.Watch(ctx)
+	if err != nil {
+		return err
+	}
 
 	// Output loop
 	for {
