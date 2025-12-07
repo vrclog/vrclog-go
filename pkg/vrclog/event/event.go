@@ -1,0 +1,48 @@
+// Package event defines the core Event type for VRChat log parsing.
+//
+// This package is separated from the main vrclog package to avoid import cycles
+// between pkg/vrclog and internal/parser.
+package event
+
+import "time"
+
+// Type represents the type of VRChat log event.
+type Type string
+
+const (
+	// WorldJoin indicates the user has joined a world/instance.
+	WorldJoin Type = "world_join"
+
+	// PlayerJoin indicates another player has joined the instance.
+	PlayerJoin Type = "player_join"
+
+	// PlayerLeft indicates another player has left the instance.
+	PlayerLeft Type = "player_left"
+)
+
+// Event represents a parsed VRChat log event.
+type Event struct {
+	// Type is the event type.
+	Type Type `json:"type"`
+
+	// Timestamp is when the event occurred (local time from log).
+	Timestamp time.Time `json:"timestamp"`
+
+	// PlayerName is the display name of the player (for player events).
+	PlayerName string `json:"player_name,omitempty"`
+
+	// PlayerID is the VRChat user ID (usr_xxx format, if available).
+	PlayerID string `json:"player_id,omitempty"`
+
+	// WorldID is the VRChat world ID (wrld_xxx format).
+	WorldID string `json:"world_id,omitempty"`
+
+	// WorldName is the display name of the world.
+	WorldName string `json:"world_name,omitempty"`
+
+	// InstanceID is the instance identifier (e.g., "12345~region(us)").
+	InstanceID string `json:"instance_id,omitempty"`
+
+	// RawLine is the original log line (only included if requested).
+	RawLine string `json:"raw_line,omitempty"`
+}
