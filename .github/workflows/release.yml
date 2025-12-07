@@ -22,7 +22,7 @@ jobs:
       # チェックアウト（全履歴取得）
       # ─────────────────────────────────────────────────────────
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
