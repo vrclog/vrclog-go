@@ -6,6 +6,10 @@ A Go library and CLI tool for parsing and monitoring VRChat log files.
 
 [日本語版はこちら](README.ja.md)
 
+## API Stability
+
+> **Note**: This library is pre-1.0 (`v0.x.x`). The API may change between minor versions without deprecation warnings. Pin to a specific version if you need stability.
+
 ## Features
 
 - Parse VRChat log files into structured events
