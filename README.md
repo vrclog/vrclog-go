@@ -17,7 +17,7 @@ A Go library and CLI tool for parsing and monitoring VRChat log files.
 
 ## Requirements
 
-- Go 1.21+
+- Go 1.23+ (required for `iter.Seq2` iterator support)
 - Windows (for actual VRChat log monitoring)
 
 ## Installation
@@ -123,7 +123,7 @@ vrclog tail | jq 'select(.type == "player_join") | .player_name'
 
 ## Library Usage
 
-### Quick Start
+### Quick Start (Real-time Watching)
 
 ```go
 package main
@@ -140,8 +140,11 @@ func main() {
     ctx, cancel := context.WithCancel(context.Background())
     defer cancel()
 
-    // Start watching with default options (auto-detect log directory)
-    events, errs, err := vrclog.Watch(ctx, vrclog.WatchOptions{})
+    // Start watching with functional options (recommended)
+    events, errs, err := vrclog.WatchWithOptions(ctx,
+        vrclog.WithIncludeTypes(vrclog.EventPlayerJoin, vrclog.EventPlayerLeft),
+        vrclog.WithReplayLastN(100),
+    )
     if err != nil {
         log.Fatal(err)
     }
@@ -170,48 +173,96 @@ func main() {
 }
 ```
 
+### Watch Options (Functional Options Pattern)
+
+| Option | Description |
+|--------|-------------|
+| `WithLogDir(dir)` | Set VRChat log directory (auto-detect if not set) |
+| `WithPollInterval(d)` | Log rotation check interval (default: 2s) |
+| `WithIncludeRawLine(bool)` | Include raw log line in events |
+| `WithIncludeTypes(types...)` | Filter to only these event types |
+| `WithExcludeTypes(types...)` | Filter out these event types |
+| `WithReplayFromStart()` | Read from file start |
+| `WithReplayLastN(n)` | Read last N lines before tailing |
+| `WithReplaySinceTime(t)` | Read events since timestamp |
+| `WithMaxReplayLines(n)` | Limit for ReplayLastN (default: 10000) |
+| `WithLogger(logger)` | Set slog.Logger for debug output |
+
 ### Advanced Usage with Watcher
 
 For more control over the watcher lifecycle:
 
 ```go
-// Create watcher with options
-watcher, err := vrclog.NewWatcher(vrclog.WatchOptions{
-    LogDir:         "", // auto-detect
-    PollInterval:   5 * time.Second,
-    IncludeRawLine: true,
-    Replay: vrclog.ReplayConfig{
-        Mode:  vrclog.ReplayLastN,
-        LastN: 100,
-    },
-})
+// Create watcher with functional options
+watcher, err := vrclog.NewWatcherWithOptions(
+    vrclog.WithLogDir("/custom/path"),
+    vrclog.WithIncludeTypes(vrclog.EventPlayerJoin),
+    vrclog.WithReplayLastN(100),
+)
 if err != nil {
     log.Fatal(err)
 }
 defer watcher.Close()
 
 // Start watching
-events, errs := watcher.Watch(ctx)
+events, errs, err := watcher.Watch(ctx)
 // ... process events
 ```
 
-### WatchOptions
+### Offline Parsing (iter.Seq2)
 
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `LogDir` | `string` | auto-detect | VRChat log directory |
-| `PollInterval` | `time.Duration` | 2s | Log rotation check interval |
-| `IncludeRawLine` | `bool` | false | Include raw log line in events |
-| `Replay` | `ReplayConfig` | none | Replay configuration |
+Parse log files without starting a watcher. Uses Go 1.23+ iterators for memory-efficient streaming:
 
-### ReplayConfig
+```go
+// Parse a single file
+for ev, err := range vrclog.ParseFile(ctx, "output_log.txt",
+    vrclog.WithParseIncludeTypes(vrclog.EventPlayerJoin),
+) {
+    if err != nil {
+        log.Printf("error: %v", err)
+        break
+    }
+    fmt.Printf("Player joined: %s\n", ev.PlayerName)
+}
 
-| Mode | Description |
-|------|-------------|
-| `ReplayNone` | Only new lines (default) |
-| `ReplayFromStart` | Read from file start |
-| `ReplayLastN` | Read last N lines |
-| `ReplaySinceTime` | Read since timestamp |
+// Collect all events into a slice
+events, err := vrclog.ParseFileAll(ctx, "output_log.txt")
+
+// Parse all log files in a directory (chronological order)
+for ev, err := range vrclog.ParseDir(ctx,
+    vrclog.WithDirLogDir("/path/to/logs"),
+    vrclog.WithDirIncludeTypes(vrclog.EventWorldJoin),
+) {
+    if err != nil {
+        break
+    }
+    fmt.Printf("World: %s\n", ev.WorldName)
+}
+```
+
+### Parse Options
+
+| Option | Description |
+|--------|-------------|
+| `WithParseIncludeTypes(types...)` | Filter to only these event types |
+| `WithParseExcludeTypes(types...)` | Filter out these event types |
+| `WithParseTimeRange(since, until)` | Filter by time range |
+| `WithParseSince(t)` | Filter events at or after time |
+| `WithParseUntil(t)` | Filter events before time |
+| `WithParseIncludeRawLine(bool)` | Include raw log line |
+| `WithParseStopOnError(bool)` | Stop on first error (default: skip) |
+
+### ParseDir Options
+
+| Option | Description |
+|--------|-------------|
+| `WithDirLogDir(dir)` | Log directory (auto-detect if not set) |
+| `WithDirPaths(paths...)` | Explicit file paths to parse |
+| `WithDirIncludeTypes(types...)` | Filter to only these event types |
+| `WithDirExcludeTypes(types...)` | Filter out these event types |
+| `WithDirTimeRange(since, until)` | Filter by time range |
+| `WithDirIncludeRawLine(bool)` | Include raw log line |
+| `WithDirStopOnError(bool)` | Stop on first error |
 
 ### Parse Single Lines
 
@@ -226,6 +277,19 @@ if err != nil {
 // event == nil && err == nil means line is not a recognized event
 ```
 
+### Legacy API (Deprecated)
+
+The struct-based API is still available for backward compatibility but is deprecated:
+
+```go
+// Deprecated: Use WatchWithOptions instead
+events, errs, err := vrclog.Watch(ctx, vrclog.WatchOptions{
+    LogDir:         "",
+    PollInterval:   5 * time.Second,
+    IncludeRawLine: true,
+})
+```
+
 ## Event Types
 
 | Type | Description | Fields |
@@ -233,6 +297,65 @@ if err != nil {
 | `world_join` | User joined a world | WorldName, WorldID, InstanceID |
 | `player_join` | Player joined the instance | PlayerName, PlayerID |
 | `player_left` | Player left the instance | PlayerName |
+
+### Event JSON Schema
+
+All events have these common fields:
+
+| JSON Field | Go Field | Type | Description |
+|------------|----------|------|-------------|
+| `type` | `Type` | `string` | Event type (`world_join`, `player_join`, `player_left`) |
+| `timestamp` | `Timestamp` | `string` | RFC3339 timestamp |
+| `player_name` | `PlayerName` | `string` | Player display name (player events) |
+| `player_id` | `PlayerID` | `string` | Player ID like `usr_xxx` (player_join only) |
+| `world_name` | `WorldName` | `string` | World name (world_join only) |
+| `world_id` | `WorldID` | `string` | World ID like `wrld_xxx` (world_join only) |
+| `instance_id` | `InstanceID` | `string` | Full instance ID (world_join only) |
+| `raw_line` | `RawLine` | `string` | Original log line (if IncludeRawLine enabled) |
+
+## Runtime Behavior
+
+### Channel Lifecycle
+
+- Both `events` and `errs` channels close when:
+  - Context is cancelled (`ctx.Done()`)
+  - A fatal error occurs (e.g., log directory deleted)
+  - `watcher.Close()` is called
+- Always check the `ok` value when receiving from channels
+
+### Log Rotation
+
+- The watcher polls for new log files at `PollInterval` (default: 2 seconds)
+- When VRChat creates a new log file, the watcher automatically switches to it
+- New log files are read from the beginning
+- The watcher does not return to old log files
+
+### Error Handling
+
+Errors are sent to the error channel and can be inspected with `errors.Is()`:
+
+```go
+import "errors"
+
+case err := <-errs:
+    if errors.Is(err, vrclog.ErrLogDirNotFound) {
+        // Log directory was deleted
+    }
+    var parseErr *vrclog.ParseError
+    if errors.As(err, &parseErr) {
+        // Malformed log line
+        fmt.Printf("bad line: %s\n", parseErr.Line)
+    }
+```
+
+| Error | Description |
+|-------|-------------|
+| `ErrLogDirNotFound` | Log directory not found |
+| `ErrNoLogFiles` | No log files in directory |
+| `ErrWatcherClosed` | Watch called after Close |
+| `ErrAlreadyWatching` | Watch called twice |
+| `ParseError` | Malformed log line (wraps original error) |
+| `WatchError` | Watch operation error (includes operation type) |
 
 ## Output Format
 

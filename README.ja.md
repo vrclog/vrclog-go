@@ -17,7 +17,7 @@ VRChatのログファイルを解析・監視するGoライブラリ＆CLIツー
 
 ## 動作要件
 
-- Go 1.21以上
+- Go 1.23以上（`iter.Seq2`イテレータサポートに必要）
 - Windows（実際のVRChatログ監視用）
 
 ## インストール
@@ -123,7 +123,7 @@ vrclog tail | jq 'select(.type == "player_join") | .player_name'
 
 ## ライブラリとしての使用
 
-### クイックスタート
+### クイックスタート（リアルタイム監視）
 
 ```go
 package main
@@ -140,8 +140,11 @@ func main() {
     ctx, cancel := context.WithCancel(context.Background())
     defer cancel()
 
-    // デフォルトオプションで監視開始（ログディレクトリ自動検出）
-    events, errs, err := vrclog.Watch(ctx, vrclog.WatchOptions{})
+    // Functional Optionsで監視開始（推奨）
+    events, errs, err := vrclog.WatchWithOptions(ctx,
+        vrclog.WithIncludeTypes(vrclog.EventPlayerJoin, vrclog.EventPlayerLeft),
+        vrclog.WithReplayLastN(100),
+    )
     if err != nil {
         log.Fatal(err)
     }
@@ -170,48 +173,96 @@ func main() {
 }
 ```
 
+### Watch オプション（Functional Options パターン）
+
+| オプション | 説明 |
+|------------|------|
+| `WithLogDir(dir)` | VRChatログディレクトリを設定（未設定時は自動検出） |
+| `WithPollInterval(d)` | ログローテーション確認間隔（デフォルト: 2秒） |
+| `WithIncludeRawLine(bool)` | イベントに生のログ行を含める |
+| `WithIncludeTypes(types...)` | 指定したイベントタイプのみを取得 |
+| `WithExcludeTypes(types...)` | 指定したイベントタイプを除外 |
+| `WithReplayFromStart()` | ファイル先頭から読み込み |
+| `WithReplayLastN(n)` | 直近N行を読み込んでから監視開始 |
+| `WithReplaySinceTime(t)` | 指定時刻以降のイベントを読み込み |
+| `WithMaxReplayLines(n)` | ReplayLastNの上限（デフォルト: 10000） |
+| `WithLogger(logger)` | デバッグ用のslog.Loggerを設定 |
+
 ### Watcherを使った高度な使用法
 
 ライフサイクルをより細かく制御する場合:
 
 ```go
-// オプションを指定してWatcherを作成
-watcher, err := vrclog.NewWatcher(vrclog.WatchOptions{
-    LogDir:         "", // 自動検出
-    PollInterval:   5 * time.Second,
-    IncludeRawLine: true,
-    Replay: vrclog.ReplayConfig{
-        Mode:  vrclog.ReplayLastN,
-        LastN: 100,
-    },
-})
+// Functional Optionsを使ってWatcherを作成
+watcher, err := vrclog.NewWatcherWithOptions(
+    vrclog.WithLogDir("/custom/path"),
+    vrclog.WithIncludeTypes(vrclog.EventPlayerJoin),
+    vrclog.WithReplayLastN(100),
+)
 if err != nil {
     log.Fatal(err)
 }
 defer watcher.Close()
 
 // 監視開始
-events, errs := watcher.Watch(ctx)
+events, errs, err := watcher.Watch(ctx)
 // ... イベントを処理
 ```
 
-### WatchOptions
+### オフライン解析（iter.Seq2）
 
-| フィールド | 型 | デフォルト | 説明 |
-|------------|-----|------------|------|
-| `LogDir` | `string` | 自動検出 | VRChatログディレクトリ |
-| `PollInterval` | `time.Duration` | 2秒 | ログローテーション確認間隔 |
-| `IncludeRawLine` | `bool` | false | イベントに生のログ行を含める |
-| `Replay` | `ReplayConfig` | なし | リプレイ設定 |
+Watcherを起動せずにログファイルを解析。Go 1.23+のイテレータを使用してメモリ効率の良いストリーミング処理が可能:
 
-### ReplayConfig
+```go
+// 単一ファイルを解析
+for ev, err := range vrclog.ParseFile(ctx, "output_log.txt",
+    vrclog.WithParseIncludeTypes(vrclog.EventPlayerJoin),
+) {
+    if err != nil {
+        log.Printf("エラー: %v", err)
+        break
+    }
+    fmt.Printf("プレイヤー参加: %s\n", ev.PlayerName)
+}
 
-| モード | 説明 |
-|--------|------|
-| `ReplayNone` | 新しい行のみ（デフォルト） |
-| `ReplayFromStart` | ファイル先頭から読み込み |
-| `ReplayLastN` | 直近N行を読み込み |
-| `ReplaySinceTime` | 指定時刻以降を読み込み |
+// 全イベントをスライスに収集
+events, err := vrclog.ParseFileAll(ctx, "output_log.txt")
+
+// ディレクトリ内の全ログファイルを解析（時系列順）
+for ev, err := range vrclog.ParseDir(ctx,
+    vrclog.WithDirLogDir("/path/to/logs"),
+    vrclog.WithDirIncludeTypes(vrclog.EventWorldJoin),
+) {
+    if err != nil {
+        break
+    }
+    fmt.Printf("ワールド: %s\n", ev.WorldName)
+}
+```
+
+### Parse オプション
+
+| オプション | 説明 |
+|------------|------|
+| `WithParseIncludeTypes(types...)` | 指定したイベントタイプのみを取得 |
+| `WithParseExcludeTypes(types...)` | 指定したイベントタイプを除外 |
+| `WithParseTimeRange(since, until)` | 時間範囲でフィルタ |
+| `WithParseSince(t)` | 指定時刻以降のイベントを取得 |
+| `WithParseUntil(t)` | 指定時刻より前のイベントを取得 |
+| `WithParseIncludeRawLine(bool)` | 生のログ行を含める |
+| `WithParseStopOnError(bool)` | 最初のエラーで停止（デフォルト: スキップ） |
+
+### ParseDir オプション
+
+| オプション | 説明 |
+|------------|------|
+| `WithDirLogDir(dir)` | ログディレクトリ（未設定時は自動検出） |
+| `WithDirPaths(paths...)` | 解析するファイルパスを明示的に指定 |
+| `WithDirIncludeTypes(types...)` | 指定したイベントタイプのみを取得 |
+| `WithDirExcludeTypes(types...)` | 指定したイベントタイプを除外 |
+| `WithDirTimeRange(since, until)` | 時間範囲でフィルタ |
+| `WithDirIncludeRawLine(bool)` | 生のログ行を含める |
+| `WithDirStopOnError(bool)` | 最初のエラーで停止 |
 
 ### 単一行のパース
 
@@ -226,6 +277,19 @@ if err != nil {
 // event == nil && err == nil の場合、認識されないイベント行
 ```
 
+### 旧API（非推奨）
+
+後方互換性のため、構造体ベースのAPIも利用可能ですが非推奨です:
+
+```go
+// 非推奨: WatchWithOptions を使用してください
+events, errs, err := vrclog.Watch(ctx, vrclog.WatchOptions{
+    LogDir:         "",
+    PollInterval:   5 * time.Second,
+    IncludeRawLine: true,
+})
+```
+
 ## イベントタイプ
 
 | タイプ | 説明 | フィールド |
@@ -233,6 +297,65 @@ if err != nil {
 | `world_join` | ワールドに参加 | WorldName, WorldID, InstanceID |
 | `player_join` | プレイヤーがインスタンスに参加 | PlayerName, PlayerID |
 | `player_left` | プレイヤーがインスタンスから退出 | PlayerName |
+
+### Event JSON スキーマ
+
+すべてのイベントに共通のフィールド:
+
+| JSONフィールド | Goフィールド | 型 | 説明 |
+|----------------|--------------|-----|------|
+| `type` | `Type` | `string` | イベントタイプ（`world_join`, `player_join`, `player_left`） |
+| `timestamp` | `Timestamp` | `string` | RFC3339形式のタイムスタンプ |
+| `player_name` | `PlayerName` | `string` | プレイヤー表示名（プレイヤーイベント） |
+| `player_id` | `PlayerID` | `string` | `usr_xxx`形式のプレイヤーID（player_joinのみ） |
+| `world_name` | `WorldName` | `string` | ワールド名（world_joinのみ） |
+| `world_id` | `WorldID` | `string` | `wrld_xxx`形式のワールドID（world_joinのみ） |
+| `instance_id` | `InstanceID` | `string` | 完全なインスタンスID（world_joinのみ） |
+| `raw_line` | `RawLine` | `string` | 元のログ行（IncludeRawLine有効時） |
+
+## 実行時の動作
+
+### チャネルのライフサイクル
+
+- `events`と`errs`の両チャネルは以下の場合に閉じられます:
+  - コンテキストがキャンセルされた時（`ctx.Done()`）
+  - 致命的なエラーが発生した時（例: ログディレクトリが削除された）
+  - `watcher.Close()`が呼ばれた時
+- チャネルから受信する際は必ず`ok`値を確認してください
+
+### ログローテーション
+
+- Watcherは`PollInterval`（デフォルト: 2秒）で新しいログファイルをポーリングします
+- VRChatが新しいログファイルを作成すると、自動的に切り替えます
+- 新しいログファイルは先頭から読み込まれます
+- 古いログファイルには戻りません
+
+### エラー処理
+
+エラーはエラーチャネルに送信され、`errors.Is()`で検査できます:
+
+```go
+import "errors"
+
+case err := <-errs:
+    if errors.Is(err, vrclog.ErrLogDirNotFound) {
+        // ログディレクトリが削除された
+    }
+    var parseErr *vrclog.ParseError
+    if errors.As(err, &parseErr) {
+        // 不正なログ行
+        fmt.Printf("不正な行: %s\n", parseErr.Line)
+    }
+```
+
+| エラー | 説明 |
+|--------|------|
+| `ErrLogDirNotFound` | ログディレクトリが見つからない |
+| `ErrNoLogFiles` | ディレクトリにログファイルがない |
+| `ErrWatcherClosed` | Close後にWatchが呼ばれた |
+| `ErrAlreadyWatching` | Watchが二重に呼ばれた |
+| `ParseError` | 不正なログ行（元のエラーをラップ） |
+| `WatchError` | Watch操作エラー（操作タイプを含む） |
 
 ## 出力形式
 

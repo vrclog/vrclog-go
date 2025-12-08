@@ -106,55 +106,51 @@ func runTail(cmd *cobra.Command, args []string) error {
 		syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	// Build event type filter
-	typeFilter := make(map[vrclog.EventType]bool)
-	if len(eventTypes) > 0 {
-		for _, t := range eventTypes {
-			typeFilter[vrclog.EventType(t)] = true
-		}
+	// Build watch options using functional options pattern
+	var watchOpts []vrclog.WatchOption
+
+	if logDir != "" {
+		watchOpts = append(watchOpts, vrclog.WithLogDir(logDir))
 	}
 
-	// Build replay config
-	replay := vrclog.ReplayConfig{}
+	if includeRaw {
+		watchOpts = append(watchOpts, vrclog.WithIncludeRawLine(true))
+	}
+
+	// Handle replay options
 	if replayLast >= 0 {
 		if replayLast == 0 {
-			replay.Mode = vrclog.ReplayFromStart
+			watchOpts = append(watchOpts, vrclog.WithReplayFromStart())
 		} else {
-			replay.Mode = vrclog.ReplayLastN
-			replay.LastN = replayLast
+			watchOpts = append(watchOpts, vrclog.WithReplayLastN(replayLast))
 		}
 	} else if replaySince != "" {
 		t, err := time.Parse(time.RFC3339, replaySince)
 		if err != nil {
 			return fmt.Errorf("invalid --replay-since format: %w", err)
 		}
-		replay.Mode = vrclog.ReplaySinceTime
-		replay.Since = t
+		watchOpts = append(watchOpts, vrclog.WithReplaySinceTime(t))
 	}
 
 	// Setup logger based on verbose flag
-	var logger *slog.Logger
 	if verbose {
-		logger = slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
+		logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
 			Level: slog.LevelDebug,
 		}))
+		watchOpts = append(watchOpts, vrclog.WithLogger(logger))
 	}
 
-	// Build options
-	opts := vrclog.WatchOptions{
-		LogDir:         logDir,
-		IncludeRawLine: includeRaw,
-		Replay:         replay,
-		Logger:         logger,
+	// Use library-level filtering (more efficient than CLI-side filtering)
+	if len(eventTypes) > 0 {
+		types := make([]vrclog.EventType, len(eventTypes))
+		for i, t := range eventTypes {
+			types[i] = vrclog.EventType(t)
+		}
+		watchOpts = append(watchOpts, vrclog.WithIncludeTypes(types...))
 	}
 
-	// Validate options
-	if err := opts.Validate(); err != nil {
-		return fmt.Errorf("invalid options: %w", err)
-	}
-
-	// Create watcher (validates log directory)
-	watcher, err := vrclog.NewWatcher(opts)
+	// Create watcher with functional options
+	watcher, err := vrclog.NewWatcherWithOptions(watchOpts...)
 	if err != nil {
 		return err
 	}
@@ -174,12 +170,7 @@ func runTail(cmd *cobra.Command, args []string) error {
 				return nil // Channel closed
 			}
 
-			// Apply type filter
-			if len(typeFilter) > 0 && !typeFilter[event.Type] {
-				continue
-			}
-
-			// Output event
+			// Output event (filtering is now done at library level)
 			if err := outputEvent(event); err != nil {
 				return fmt.Errorf("output error: %w", err)
 			}

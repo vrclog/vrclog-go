@@ -110,6 +110,7 @@ type Watcher struct {
 	opts   WatchOptions
 	logDir string
 	log    *slog.Logger
+	filter *compiledFilter // event type filter
 
 	mu       sync.Mutex
 	closed   bool
@@ -304,14 +305,19 @@ func (w *Watcher) processLine(ctx context.Context, line string, eventCh chan<- E
 		return // Not a recognized event
 	}
 
+	// Filter by replay time if needed (do this early before other processing)
+	if w.opts.Replay.Mode == ReplaySinceTime && ev.Timestamp.Before(w.opts.Replay.Since) {
+		return
+	}
+
+	// Apply event type filter (do this before copying RawLine for efficiency)
+	if w.filter != nil && !w.filter.Allows(EventType(ev.Type)) {
+		return
+	}
+
 	// Include raw line if requested
 	if w.opts.IncludeRawLine {
 		ev.RawLine = line
-	}
-
-	// Filter by replay time if needed
-	if w.opts.Replay.Mode == ReplaySinceTime && ev.Timestamp.Before(w.opts.Replay.Since) {
-		return
 	}
 
 	// Send event
@@ -452,10 +458,74 @@ func sendError(ctx context.Context, errCh chan<- error, err error) {
 
 // Watch is a convenience function that creates a watcher and starts watching.
 // Returns error immediately for initialization failures or if watch fails to start.
+//
+// Deprecated: Use WatchWithOptions for new code. This function is maintained
+// for backward compatibility and will be removed in v1.0.
 func Watch(ctx context.Context, opts WatchOptions) (<-chan Event, <-chan error, error) {
 	w, err := NewWatcher(opts)
 	if err != nil {
 		return nil, nil, err
 	}
 	return w.Watch(ctx)
+}
+
+// WatchWithOptions creates a watcher using functional options and starts watching.
+// This is the preferred way to create and start a watcher.
+//
+// Example:
+//
+//	events, errs, err := vrclog.WatchWithOptions(ctx,
+//	    vrclog.WithIncludeTypes(vrclog.EventPlayerJoin, vrclog.EventPlayerLeft),
+//	    vrclog.WithLogger(logger),
+//	)
+func WatchWithOptions(ctx context.Context, opts ...WatchOption) (<-chan Event, <-chan error, error) {
+	w, err := NewWatcherWithOptions(opts...)
+	if err != nil {
+		return nil, nil, err
+	}
+	return w.Watch(ctx)
+}
+
+// NewWatcherWithOptions creates a watcher using functional options.
+// Validates options and checks log directory existence.
+// Does NOT start goroutines (cheap to call).
+// Returns error for invalid options or missing log directory.
+//
+// Example:
+//
+//	watcher, err := vrclog.NewWatcherWithOptions(
+//	    vrclog.WithLogDir("/custom/path"),
+//	    vrclog.WithIncludeTypes(vrclog.EventPlayerJoin),
+//	)
+//	if err != nil {
+//	    log.Fatal(err)
+//	}
+//	events, errs, err := watcher.Watch(ctx)
+func NewWatcherWithOptions(opts ...WatchOption) (*Watcher, error) {
+	cfg := applyWatchOptions(opts)
+
+	// Convert to WatchOptions for validation
+	watchOpts := cfg.toWatchOptions()
+	if err := watchOpts.Validate(); err != nil {
+		return nil, fmt.Errorf("invalid options: %w", err)
+	}
+
+	// Find log directory
+	logDir, err := logfinder.FindLogDir(cfg.logDir)
+	if err != nil {
+		return nil, err
+	}
+
+	// Initialize logger (use discard logger if not provided)
+	log := cfg.logger
+	if log == nil {
+		log = discardLogger
+	}
+
+	return &Watcher{
+		opts:   watchOpts,
+		logDir: logDir,
+		log:    log,
+		filter: cfg.filter,
+	}, nil
 }
