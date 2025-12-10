@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log/slog"
 	"os"
@@ -16,12 +15,13 @@ import (
 
 var (
 	// tail flags
-	logDir      string
-	format      string
-	eventTypes  []string
-	includeRaw  bool
-	replayLast  int
-	replaySince string
+	logDir           string
+	format           string
+	tailIncludeTypes []string
+	tailExcludeTypes []string
+	includeRaw       bool
+	replayLast       int
+	replaySince      string
 )
 
 var tailCmd = &cobra.Command{
@@ -40,7 +40,10 @@ Examples:
   vrclog tail --log-dir "C:\Users\me\AppData\LocalLow\VRChat\VRChat"
 
   # Output only player join/leave events
-  vrclog tail --types player_join,player_left
+  vrclog tail --include-types player_join,player_left
+
+  # Exclude world_join events
+  vrclog tail --exclude-types world_join
 
   # Human-readable output
   vrclog tail --format pretty
@@ -58,8 +61,10 @@ func init() {
 		"VRChat log directory (auto-detected if not specified)")
 	tailCmd.Flags().StringVarP(&format, "format", "f", "jsonl",
 		"Output format: jsonl, pretty")
-	tailCmd.Flags().StringSliceVarP(&eventTypes, "types", "t", nil,
-		"Event types to show (comma-separated: world_join,player_join,player_left)")
+	tailCmd.Flags().StringSliceVar(&tailIncludeTypes, "include-types", nil,
+		"Event types to include (comma-separated: world_join,player_join,player_left)")
+	tailCmd.Flags().StringSliceVar(&tailExcludeTypes, "exclude-types", nil,
+		"Event types to exclude (comma-separated)")
 	tailCmd.Flags().BoolVar(&includeRaw, "raw", false,
 		"Include raw log lines in output")
 
@@ -70,30 +75,24 @@ func init() {
 		"Replay events since timestamp (RFC3339 format, e.g., 2024-01-15T12:00:00Z)")
 }
 
-// validFormats lists all valid output formats.
-var validFormats = map[string]bool{
-	"jsonl":  true,
-	"pretty": true,
-}
-
-// validEventTypes lists all valid event types.
-var validEventTypes = map[string]bool{
-	string(vrclog.EventPlayerJoin): true,
-	string(vrclog.EventPlayerLeft): true,
-	string(vrclog.EventWorldJoin):  true,
-}
 
 func runTail(cmd *cobra.Command, args []string) error {
 	// Validate format
-	if !validFormats[format] {
+	if !ValidFormats[format] {
 		return fmt.Errorf("invalid format %q: must be one of: jsonl, pretty", format)
 	}
 
-	// Validate event types
-	for _, t := range eventTypes {
-		if !validEventTypes[t] {
-			return fmt.Errorf("invalid event type %q: must be one of: world_join, player_join, player_left", t)
-		}
+	// Normalize and validate event types
+	includes, err := NormalizeEventTypes(tailIncludeTypes)
+	if err != nil {
+		return err
+	}
+	excludes, err := NormalizeEventTypes(tailExcludeTypes)
+	if err != nil {
+		return err
+	}
+	if err := RejectOverlap(includes, excludes); err != nil {
+		return err
 	}
 
 	// Validate replay options are not both specified
@@ -141,12 +140,11 @@ func runTail(cmd *cobra.Command, args []string) error {
 	}
 
 	// Use library-level filtering (more efficient than CLI-side filtering)
-	if len(eventTypes) > 0 {
-		types := make([]vrclog.EventType, len(eventTypes))
-		for i, t := range eventTypes {
-			types[i] = vrclog.EventType(t)
-		}
-		watchOpts = append(watchOpts, vrclog.WithIncludeTypes(types...))
+	if len(includes) > 0 {
+		watchOpts = append(watchOpts, vrclog.WithIncludeTypes(includes...))
+	}
+	if len(excludes) > 0 {
+		watchOpts = append(watchOpts, vrclog.WithExcludeTypes(excludes...))
 	}
 
 	// Create watcher with functional options
@@ -171,7 +169,7 @@ func runTail(cmd *cobra.Command, args []string) error {
 			}
 
 			// Output event (filtering is now done at library level)
-			if err := outputEvent(event); err != nil {
+			if err := OutputEvent(format, event, os.Stdout); err != nil {
 				return fmt.Errorf("output error: %w", err)
 			}
 
@@ -186,45 +184,4 @@ func runTail(cmd *cobra.Command, args []string) error {
 			return nil
 		}
 	}
-}
-
-func outputEvent(event vrclog.Event) error {
-	switch format {
-	case "jsonl":
-		return outputJSON(event)
-	case "pretty":
-		return outputPretty(event)
-	default:
-		return fmt.Errorf("unknown format: %s", format)
-	}
-}
-
-func outputJSON(event vrclog.Event) error {
-	data, err := json.Marshal(event)
-	if err != nil {
-		return err
-	}
-	fmt.Println(string(data))
-	return nil
-}
-
-func outputPretty(event vrclog.Event) error {
-	ts := event.Timestamp.Format("15:04:05")
-
-	switch event.Type {
-	case vrclog.EventPlayerJoin:
-		fmt.Printf("[%s] + %s joined\n", ts, event.PlayerName)
-	case vrclog.EventPlayerLeft:
-		fmt.Printf("[%s] - %s left\n", ts, event.PlayerName)
-	case vrclog.EventWorldJoin:
-		if event.WorldName != "" {
-			fmt.Printf("[%s] > Joined world: %s\n", ts, event.WorldName)
-		} else {
-			fmt.Printf("[%s] > Joined instance: %s\n", ts, event.InstanceID)
-		}
-	default:
-		fmt.Printf("[%s] ? %s\n", ts, event.Type)
-	}
-
-	return nil
 }

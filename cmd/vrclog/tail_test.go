@@ -1,6 +1,7 @@
 package main
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -18,32 +19,62 @@ func TestValidFormats(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.format, func(t *testing.T) {
-			got := validFormats[tt.format]
+			got := ValidFormats[tt.format]
 			if got != tt.valid {
-				t.Errorf("validFormats[%q] = %v, want %v", tt.format, got, tt.valid)
+				t.Errorf("ValidFormats[%q] = %v, want %v", tt.format, got, tt.valid)
 			}
 		})
 	}
 }
 
-func TestValidEventTypes(t *testing.T) {
-	tests := []struct {
-		eventType string
-		valid     bool
-	}{
-		{"player_join", true},
-		{"player_left", true},
-		{"world_join", true},
-		{"invalid", false},
-		{"", false},
-	}
+func TestRunTailInvalidEventType(t *testing.T) {
+	// Save and restore original values
+	origInclude := tailIncludeTypes
+	origExclude := tailExcludeTypes
+	origFormat := format
+	defer func() {
+		tailIncludeTypes = origInclude
+		tailExcludeTypes = origExclude
+		format = origFormat
+	}()
 
-	for _, tt := range tests {
-		t.Run(tt.eventType, func(t *testing.T) {
-			got := validEventTypes[tt.eventType]
-			if got != tt.valid {
-				t.Errorf("validEventTypes[%q] = %v, want %v", tt.eventType, got, tt.valid)
-			}
-		})
+	// Set up test conditions
+	format = "jsonl"
+	tailIncludeTypes = []string{"invalid_type"}
+	tailExcludeTypes = nil
+
+	err := runTail(tailCmd, nil)
+	if err == nil {
+		t.Error("expected error for invalid event type, got nil")
+		return
+	}
+	if !strings.Contains(err.Error(), "unknown event type") {
+		t.Errorf("expected 'unknown event type' error, got: %v", err)
+	}
+}
+
+func TestRunTailOverlapEventTypes(t *testing.T) {
+	// Save and restore original values
+	origInclude := tailIncludeTypes
+	origExclude := tailExcludeTypes
+	origFormat := format
+	defer func() {
+		tailIncludeTypes = origInclude
+		tailExcludeTypes = origExclude
+		format = origFormat
+	}()
+
+	// Set up test conditions
+	format = "jsonl"
+	tailIncludeTypes = []string{"player_join"}
+	tailExcludeTypes = []string{"player_join"}
+
+	err := runTail(tailCmd, nil)
+	if err == nil {
+		t.Error("expected error for overlapping event types, got nil")
+		return
+	}
+	if !strings.Contains(err.Error(), "cannot be both included and excluded") {
+		t.Errorf("expected overlap error, got: %v", err)
 	}
 }

@@ -44,6 +44,7 @@ func init() {
 
 	// Add subcommands
 	rootCmd.AddCommand(tailCmd)
+	rootCmd.AddCommand(parseCmd)
 	rootCmd.AddCommand(versionCmd)
 }
 
