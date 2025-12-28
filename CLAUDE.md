@@ -68,8 +68,9 @@ cmd/vrclog/           # CLI entry point
 ├── main.go           # Root command, version command
 ├── tail.go           # tail subcommand (real-time monitoring)
 ├── parse.go          # parse subcommand (batch parsing)
+├── completion.go     # Shell completion subcommand (bash/zsh/fish/powershell)
 ├── format.go         # Shared output formatting
-└── eventtypes.go     # Shared event type validation
+└── eventtypes.go     # Shared event type validation (uses event.TypeNames())
 ```
 
 ### Key Design Patterns
@@ -93,6 +94,8 @@ watcher, err := vrclog.NewWatcherWithOptions(
 - `(*Event, nil)` - successfully parsed
 - `(nil, nil)` - not a recognized event (skip, not an error)
 - `(nil, error)` - malformed line
+
+**Event Type Single Source of Truth**: `event.TypeNames()` in `pkg/vrclog/event/event.go` is the canonical list of event type names. CLI's `eventtypes.go` delegates to it for validation and completion.
 
 ### Event Types
 
@@ -132,3 +135,4 @@ This project uses golangci-lint v2 with configuration in `.golangci.yml`. The co
 
 - macOS uses `/var` as a symlink to `/private/var`, so tests comparing paths must use `filepath.EvalSymlinks()` for expected values
 - Use `t.TempDir()` for temporary test directories (auto-cleanup)
+- Golden file tests in `cmd/vrclog/format_test.go`: update with `go test ./cmd/vrclog -run TestOutputEvent_Golden -update-golden`

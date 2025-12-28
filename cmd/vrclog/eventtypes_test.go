@@ -4,48 +4,16 @@ import (
 	"testing"
 
 	"github.com/vrclog/vrclog-go/pkg/vrclog"
+	"github.com/vrclog/vrclog-go/pkg/vrclog/event"
 )
-
-func TestValidEventTypes(t *testing.T) {
-	// Verify all expected event types are mapped
-	expected := map[string]vrclog.EventType{
-		"world_join":  vrclog.EventWorldJoin,
-		"player_join": vrclog.EventPlayerJoin,
-		"player_left": vrclog.EventPlayerLeft,
-	}
-
-	for name, want := range expected {
-		got, ok := ValidEventTypes[name]
-		if !ok {
-			t.Errorf("ValidEventTypes missing %q", name)
-			continue
-		}
-		if got != want {
-			t.Errorf("ValidEventTypes[%q] = %v, want %v", name, got, want)
-		}
-	}
-
-	// Verify no extra types
-	if len(ValidEventTypes) != len(expected) {
-		t.Errorf("ValidEventTypes has %d entries, want %d", len(ValidEventTypes), len(expected))
-	}
-}
-
-func TestValidEventTypesInvalid(t *testing.T) {
-	invalid := []string{"invalid", "", "player", "join"}
-	for _, name := range invalid {
-		if _, ok := ValidEventTypes[name]; ok {
-			t.Errorf("ValidEventTypes should not contain %q", name)
-		}
-	}
-}
 
 func TestValidEventTypeNames(t *testing.T) {
 	names := ValidEventTypeNames()
 
-	// Should return all names from ValidEventTypes
-	if len(names) != len(ValidEventTypes) {
-		t.Errorf("ValidEventTypeNames() returned %d names, want %d", len(names), len(ValidEventTypes))
+	// Should delegate to event.TypeNames()
+	eventNames := event.TypeNames()
+	if len(names) != len(eventNames) {
+		t.Errorf("ValidEventTypeNames() returned %d names, want %d", len(names), len(eventNames))
 	}
 
 	// Should be sorted

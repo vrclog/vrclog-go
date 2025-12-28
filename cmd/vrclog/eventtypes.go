@@ -8,14 +8,6 @@ import (
 	"github.com/vrclog/vrclog-go/pkg/vrclog/event"
 )
 
-// ValidEventTypes maps CLI string names to vrclog.EventType.
-// Used for both validation and normalization.
-var ValidEventTypes = map[string]vrclog.EventType{
-	"world_join":  vrclog.EventWorldJoin,
-	"player_join": vrclog.EventPlayerJoin,
-	"player_left": vrclog.EventPlayerLeft,
-}
-
 // ValidEventTypeNames returns a sorted list of valid event type names.
 // Delegates to event.TypeNames() as the single source of truth.
 func ValidEventTypeNames() []string {
@@ -24,6 +16,7 @@ func ValidEventTypeNames() []string {
 
 // NormalizeEventTypes converts CLI string values to vrclog.EventType slice.
 // It handles case-insensitivity, whitespace trimming, and duplicate removal.
+// Delegates to event.ParseType() for parsing.
 func NormalizeEventTypes(values []string) ([]vrclog.EventType, error) {
 	if len(values) == 0 {
 		return nil, nil
@@ -33,12 +26,7 @@ func NormalizeEventTypes(values []string) ([]vrclog.EventType, error) {
 	seen := make(map[vrclog.EventType]struct{})
 
 	for _, raw := range values {
-		name := strings.ToLower(strings.TrimSpace(raw))
-		if name == "" {
-			return nil, fmt.Errorf("empty event type provided (input: %q); valid types: %s", raw, strings.Join(ValidEventTypeNames(), ", "))
-		}
-
-		t, ok := ValidEventTypes[name]
+		t, ok := event.ParseType(raw)
 		if !ok {
 			return nil, fmt.Errorf("unknown event type %q (valid: %s)", raw, strings.Join(ValidEventTypeNames(), ", "))
 		}

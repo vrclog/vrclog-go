@@ -6,6 +6,7 @@ package event
 
 import (
 	"sort"
+	"strings"
 	"time"
 )
 
@@ -36,6 +37,25 @@ func TypeNames() []string {
 	}
 	sort.Strings(names)
 	return names
+}
+
+// typeByName maps lowercase string names to Type for efficient lookup.
+// Built once from allTypes at package initialization.
+var typeByName = func() map[string]Type {
+	m := make(map[string]Type, len(allTypes))
+	for _, t := range allTypes {
+		m[string(t)] = t
+	}
+	return m
+}()
+
+// ParseType converts a string to Type if valid.
+// It is case-insensitive and trims leading/trailing whitespace.
+// Returns the type and true if found, zero value and false otherwise.
+func ParseType(name string) (Type, bool) {
+	name = strings.ToLower(strings.TrimSpace(name))
+	t, ok := typeByName[name]
+	return t, ok
 }
 
 // Event represents a parsed VRChat log event.
