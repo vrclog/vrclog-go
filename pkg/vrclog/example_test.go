@@ -2,6 +2,7 @@ package vrclog_test
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"time"
@@ -132,4 +133,61 @@ func ExampleParseLine_worldJoin() {
 	// Output:
 	// Type: world_join
 	// World: Test World
+}
+
+// Example_errorsIs demonstrates how to check for sentinel errors using errors.Is.
+// This is useful for checking specific error conditions regardless of wrapping.
+func Example_errorsIs() {
+	// Simulate a wrapped error (e.g., from NewWatcherWithOptions)
+	err := fmt.Errorf("failed to initialize watcher: %w", vrclog.ErrLogDirNotFound)
+
+	// Use errors.Is to check for specific sentinel errors
+	if errors.Is(err, vrclog.ErrLogDirNotFound) {
+		fmt.Println("VRChat log directory not found")
+	}
+	// Output: VRChat log directory not found
+}
+
+// Example_errorsAs_ParseError demonstrates how to extract ParseError details.
+// ParseError is returned when a log line matches an event pattern but has invalid data.
+func Example_errorsAs_ParseError() {
+	// Simulate a parse error
+	originalErr := fmt.Errorf("invalid timestamp")
+	err := fmt.Errorf("processing failed: %w", &vrclog.ParseError{
+		Line: "malformed log line here",
+		Err:  originalErr,
+	})
+
+	// Use errors.As to extract the ParseError
+	var parseErr *vrclog.ParseError
+	if errors.As(err, &parseErr) {
+		fmt.Printf("Failed to parse line: %q\n", parseErr.Line)
+		fmt.Printf("Cause: %v\n", parseErr.Err)
+	}
+	// Output:
+	// Failed to parse line: "malformed log line here"
+	// Cause: invalid timestamp
+}
+
+// Example_errorsAs_WatchError demonstrates how to extract WatchError details.
+// WatchError is returned for errors during watch operations (tail, parse, rotation).
+func Example_errorsAs_WatchError() {
+	// Simulate a watch error
+	err := fmt.Errorf("watcher failed: %w", &vrclog.WatchError{
+		Op:   vrclog.WatchOpTail,
+		Path: "/path/to/log.txt",
+		Err:  fmt.Errorf("file not accessible"),
+	})
+
+	// Use errors.As to extract the WatchError
+	var watchErr *vrclog.WatchError
+	if errors.As(err, &watchErr) {
+		fmt.Printf("Operation: %s\n", watchErr.Op)
+		fmt.Printf("Path: %s\n", watchErr.Path)
+		fmt.Printf("Error: %v\n", watchErr.Err)
+	}
+	// Output:
+	// Operation: tail
+	// Path: /path/to/log.txt
+	// Error: file not accessible
 }
