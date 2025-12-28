@@ -108,7 +108,7 @@ func completeEventTypes(flagName string) func(cmd *cobra.Command, args []string,
 		}
 
 		// Build candidates from valid event types
-		allTypes := []string{"player_join", "player_left", "world_join"}
+		allTypes := ValidEventTypeNames()
 		var candidates []string
 		for _, t := range allTypes {
 			if _, ok := used[t]; ok {

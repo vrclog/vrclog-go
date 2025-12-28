@@ -2,10 +2,10 @@ package main
 
 import (
 	"fmt"
-	"sort"
 	"strings"
 
 	"github.com/vrclog/vrclog-go/pkg/vrclog"
+	"github.com/vrclog/vrclog-go/pkg/vrclog/event"
 )
 
 // ValidEventTypes maps CLI string names to vrclog.EventType.
@@ -17,13 +17,9 @@ var ValidEventTypes = map[string]vrclog.EventType{
 }
 
 // ValidEventTypeNames returns a sorted list of valid event type names.
+// Delegates to event.TypeNames() as the single source of truth.
 func ValidEventTypeNames() []string {
-	names := make([]string, 0, len(ValidEventTypes))
-	for name := range ValidEventTypes {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-	return names
+	return event.TypeNames()
 }
 
 // NormalizeEventTypes converts CLI string values to vrclog.EventType slice.

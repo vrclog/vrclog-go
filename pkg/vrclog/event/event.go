@@ -4,7 +4,10 @@
 // between pkg/vrclog and internal/parser.
 package event
 
-import "time"
+import (
+	"sort"
+	"time"
+)
 
 // Type represents the type of VRChat log event.
 type Type string
@@ -19,6 +22,21 @@ const (
 	// PlayerLeft indicates another player has left the instance.
 	PlayerLeft Type = "player_left"
 )
+
+// allTypes is the canonical list of all event types.
+// Add new event types here when extending the parser.
+var allTypes = []Type{WorldJoin, PlayerJoin, PlayerLeft}
+
+// TypeNames returns a sorted list of all valid event type names.
+// This is the single source of truth for event type enumeration.
+func TypeNames() []string {
+	names := make([]string, len(allTypes))
+	for i, t := range allTypes {
+		names[i] = string(t)
+	}
+	sort.Strings(names)
+	return names
+}
 
 // Event represents a parsed VRChat log event.
 type Event struct {
