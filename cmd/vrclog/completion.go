@@ -1,6 +1,8 @@
 package main
 
 import (
+	"strings"
+
 	"github.com/spf13/cobra"
 )
 
@@ -66,4 +68,58 @@ PowerShell:
 
 func init() {
 	rootCmd.AddCommand(completionCmd)
+}
+
+// completeEventTypes returns a completion function for event type flags.
+// It supports comma-separated values and excludes already-selected types.
+// Returns full values (prefix + candidate) for reliable cross-shell behavior.
+func completeEventTypes(flagName string) func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+	return func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+		parts := strings.Split(toComplete, ",")
+		prefix := strings.Join(parts[:len(parts)-1], ",")
+		if prefix != "" {
+			prefix += ","
+		}
+		current := strings.ToLower(strings.TrimSpace(parts[len(parts)-1]))
+
+		// Track already-used values
+		used := make(map[string]struct{})
+		addUsed := func(v string) {
+			v = strings.ToLower(strings.TrimSpace(v))
+			if v != "" {
+				used[v] = struct{}{}
+			}
+		}
+
+		// Values from current input
+		for _, p := range parts[:len(parts)-1] {
+			addUsed(p)
+		}
+
+		// Values already set on the flag (for repeated flag usage)
+		if vals, err := cmd.Flags().GetStringSlice(flagName); err == nil {
+			for _, v := range vals {
+				addUsed(v)
+			}
+		}
+
+		// Build candidates from valid event types
+		allTypes := []string{"player_join", "player_left", "world_join"}
+		var candidates []string
+		for _, t := range allTypes {
+			if _, ok := used[t]; ok {
+				continue
+			}
+			if strings.HasPrefix(t, current) {
+				candidates = append(candidates, prefix+t)
+			}
+		}
+
+		return candidates, cobra.ShellCompDirectiveNoSpace | cobra.ShellCompDirectiveNoFileComp
+	}
+}
+
+// registerEventTypeCompletion registers completion for an event type flag.
+func registerEventTypeCompletion(cmd *cobra.Command, flagName string) {
+	_ = cmd.RegisterFlagCompletionFunc(flagName, completeEventTypes(flagName))
 }

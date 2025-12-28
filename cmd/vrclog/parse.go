@@ -74,6 +74,10 @@ func init() {
 		"Include raw log lines in output")
 	parseCmd.Flags().BoolVar(&parseStopOnError, "stop-on-error", false,
 		"Stop on first error instead of skipping")
+
+	// Register completion for event type flags
+	registerEventTypeCompletion(parseCmd, "include-types")
+	registerEventTypeCompletion(parseCmd, "exclude-types")
 }
 
 func runParse(cmd *cobra.Command, args []string) error {

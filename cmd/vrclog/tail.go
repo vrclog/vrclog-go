@@ -73,6 +73,10 @@ func init() {
 		"Replay last N lines before tailing (-1 = disabled, 0 = from start)")
 	tailCmd.Flags().StringVar(&replaySince, "replay-since", "",
 		"Replay events since timestamp (RFC3339 format, e.g., 2024-01-15T12:00:00Z)")
+
+	// Register completion for event type flags
+	registerEventTypeCompletion(tailCmd, "include-types")
+	registerEventTypeCompletion(tailCmd, "exclude-types")
 }
 
 func runTail(cmd *cobra.Command, args []string) error {
