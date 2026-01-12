@@ -82,6 +82,23 @@ func TestOutputPretty(t *testing.T) {
 			},
 			contains: "> Joined instance: 12345~private",
 		},
+		{
+			name: "custom_event_with_data",
+			event: vrclog.Event{
+				Type:      "poker_hole_cards",
+				Timestamp: time.Date(2024, 1, 15, 12, 30, 45, 0, time.UTC),
+				Data:      map[string]string{"card1": "Ah", "card2": "Kh"},
+			},
+			contains: "* poker_hole_cards: card1=Ah card2=Kh",
+		},
+		{
+			name: "custom_event_without_data",
+			event: vrclog.Event{
+				Type:      "custom_notification",
+				Timestamp: time.Date(2024, 1, 15, 12, 30, 45, 0, time.UTC),
+			},
+			contains: "* custom_notification",
+		},
 	}
 
 	for _, tt := range tests {
@@ -198,6 +215,32 @@ func TestOutputEvent_Golden(t *testing.T) {
 				PlayerName: "TestUser",
 			},
 		},
+		{
+			name:   "pretty_custom_event_with_data",
+			format: "pretty",
+			event: vrclog.Event{
+				Type:      "poker_hole_cards",
+				Timestamp: fixedTime,
+				Data:      map[string]string{"card1": "Ah", "card2": "Kh"},
+			},
+		},
+		{
+			name:   "pretty_custom_event_without_data",
+			format: "pretty",
+			event: vrclog.Event{
+				Type:      "custom_notification",
+				Timestamp: fixedTime,
+			},
+		},
+		{
+			name:   "jsonl_custom_event_with_data",
+			format: "jsonl",
+			event: vrclog.Event{
+				Type:      "poker_hole_cards",
+				Timestamp: fixedTime,
+				Data:      map[string]string{"card1": "Ah", "card2": "Kh"},
+			},
+		},
 	}
 
 	// Support both flag and env var for updating golden files
@@ -234,6 +277,64 @@ func TestOutputEvent_Golden(t *testing.T) {
 
 			if !bytes.Equal(got, want) {
 				t.Errorf("output mismatch for %s:\ngot:\n%s\nwant:\n%s", golden, got, want)
+			}
+		})
+	}
+}
+
+func TestQuoteIfNeeded(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{"simple", "hello", "hello"},
+		{"empty", "", `""`},
+		{"with_space", "hello world", `"hello world"`},
+		{"with_equals", "a=b", `"a=b"`},
+		{"with_quote", `say "hi"`, `"say \"hi\""`},
+		{"with_backslash", `path\to`, `"path\\to"`},
+		{"with_newline", "line1\nline2", `"line1\nline2"`},
+		{"with_tab", "col1\tcol2", `"col1\tcol2"`},
+		{"with_carriage_return", "a\rb", `"a\rb"`},
+		{"with_null", "a\x00b", `"a\x00b"`},
+		{"with_del", "a\x7fb", `"a\x7fb"`},
+		{"unicode", "テスト", "テスト"},
+		{"unicode_with_space", "日本語 テスト", `"日本語 テスト"`},
+		{"emoji", "🎮", "🎮"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := quoteIfNeeded(tt.input)
+			if got != tt.want {
+				t.Errorf("quoteIfNeeded(%q) = %q, want %q", tt.input, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestFormatData(t *testing.T) {
+	tests := []struct {
+		name  string
+		input map[string]string
+		want  string
+	}{
+		{"nil", nil, ""},
+		{"empty", map[string]string{}, ""},
+		{"single", map[string]string{"key": "value"}, "key=value"},
+		{"multiple_sorted", map[string]string{"b": "2", "a": "1", "c": "3"}, "a=1 b=2 c=3"},
+		{"with_spaces", map[string]string{"msg": "hello world"}, `msg="hello world"`},
+		{"mixed", map[string]string{"name": "Bob", "msg": "hi there"}, `msg="hi there" name=Bob`},
+		{"key_with_space", map[string]string{"key name": "value"}, `"key name"=value`},
+		{"key_with_equals", map[string]string{"key=name": "value"}, `"key=name"=value`},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := formatData(tt.input)
+			if got != tt.want {
+				t.Errorf("formatData(%v) = %q, want %q", tt.input, got, tt.want)
 			}
 		})
 	}

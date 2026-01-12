@@ -79,10 +79,20 @@ func FindLogDir(explicit string) (string, error) {
 	return "", ErrLogDirNotFound
 }
 
+// logCandidate holds a log file path and its cached modification time.
+// This avoids race conditions where files are deleted between stat and sort.
+type logCandidate struct {
+	path    string
+	modTime int64
+}
+
 // FindLatestLogFile returns the path to the most recently modified
 // output_log file in the given directory.
 //
 // Returns ErrNoLogFiles if no log files are found.
+//
+// Security: This function caches stat results to avoid TOCTOU race conditions
+// where log files could be deleted between filtering and sorting.
 func FindLatestLogFile(dir string) (string, error) {
 	pattern := filepath.Join(dir, "output_log_*.txt")
 	matches, err := filepath.Glob(pattern)
@@ -94,17 +104,34 @@ func FindLatestLogFile(dir string) (string, error) {
 		return "", ErrNoLogFiles
 	}
 
-	// Sort by modification time (newest first)
-	sort.Slice(matches, func(i, j int) bool {
-		infoI, errI := os.Stat(matches[i])
-		infoJ, errJ := os.Stat(matches[j])
-		if errI != nil || errJ != nil {
-			return false
+	// Stat files once and cache results to avoid race conditions
+	candidates := make([]logCandidate, 0, len(matches))
+	for _, m := range matches {
+		info, err := os.Stat(m)
+		if err != nil {
+			// Skip files that can't be stat'd (deleted, permission issues, etc.)
+			continue
 		}
-		return infoI.ModTime().After(infoJ.ModTime())
+		// Also skip non-regular files (directories, symlinks, etc.)
+		if !info.Mode().IsRegular() {
+			continue
+		}
+		candidates = append(candidates, logCandidate{
+			path:    m,
+			modTime: info.ModTime().UnixNano(),
+		})
+	}
+
+	if len(candidates) == 0 {
+		return "", ErrNoLogFiles
+	}
+
+	// Sort by cached modification time (newest first)
+	sort.Slice(candidates, func(i, j int) bool {
+		return candidates[i].modTime > candidates[j].modTime
 	})
 
-	return matches[0], nil
+	return candidates[0].path, nil
 }
 
 // resolveAndValidateLogDir resolves symlinks and validates the directory.
@@ -120,9 +147,9 @@ func resolveAndValidateLogDir(dir string) string {
 	// Resolve symlinks (works with Windows Junctions in Go 1.20+)
 	resolved, err := filepath.EvalSymlinks(dir)
 	if err != nil {
-		// Fallback to original path if symlink resolution fails
-		// (e.g., permission issues, broken links)
-		resolved = dir
+		// Symlink resolution failed - treat as invalid directory
+		// to prevent potential security issues with broken/malicious symlinks
+		return ""
 	}
 
 	// Check for log files in resolved path

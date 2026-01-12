@@ -261,3 +261,45 @@ func TestWatchWithOptions_ReplayFromStart(t *testing.T) {
 		t.Fatal("timeout waiting for event")
 	}
 }
+
+func TestNewWatcherWithOptions_ZeroPollInterval(t *testing.T) {
+	dir := t.TempDir()
+	logFile := filepath.Join(dir, "output_log_test.txt")
+
+	if err := os.WriteFile(logFile, []byte(""), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := vrclog.NewWatcherWithOptions(
+		vrclog.WithLogDir(dir),
+		vrclog.WithPollInterval(0), // Zero poll interval should error
+	)
+
+	if err == nil {
+		t.Error("NewWatcherWithOptions() expected error for zero poll interval")
+	}
+	if err != nil && err.Error() != "invalid options: poll interval must be positive, got 0s" {
+		t.Errorf("NewWatcherWithOptions() error = %q, want error about positive poll interval", err)
+	}
+}
+
+func TestNewWatcherWithOptions_NegativePollInterval(t *testing.T) {
+	dir := t.TempDir()
+	logFile := filepath.Join(dir, "output_log_test.txt")
+
+	if err := os.WriteFile(logFile, []byte(""), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := vrclog.NewWatcherWithOptions(
+		vrclog.WithLogDir(dir),
+		vrclog.WithPollInterval(-1*time.Second), // Negative poll interval should error
+	)
+
+	if err == nil {
+		t.Error("NewWatcherWithOptions() expected error for negative poll interval")
+	}
+	if err != nil && err.Error() != "invalid options: poll interval must be positive, got -1s" {
+		t.Errorf("NewWatcherWithOptions() error = %q, want error about positive poll interval", err)
+	}
+}

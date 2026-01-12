@@ -1,0 +1,8 @@
+version: 1
+patterns:
+  - id: test
+    event_type: test1
+    regex: 'test1'
+  - id: test
+    event_type: test2
+    regex: 'test2'

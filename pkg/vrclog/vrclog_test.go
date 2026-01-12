@@ -46,6 +46,7 @@ func TestParseLine(t *testing.T) {
 
 			if got == nil {
 				t.Fatal("ParseLine() = nil, want non-nil")
+				return
 			}
 			if got.Type != tt.wantType {
 				t.Errorf("ParseLine().Type = %v, want %v", got.Type, tt.wantType)

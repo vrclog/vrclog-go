@@ -22,6 +22,7 @@ var (
 	includeRaw       bool
 	replayLast       int
 	replaySince      string
+	tailPatterns     []string
 )
 
 var tailCmd = &cobra.Command{
@@ -74,6 +75,13 @@ func init() {
 	tailCmd.Flags().StringVar(&replaySince, "replay-since", "",
 		"Replay events since timestamp (RFC3339 format, e.g., 2024-01-15T12:00:00Z)")
 
+	// Pattern file flag
+	tailCmd.Flags().StringSliceVar(&tailPatterns, "patterns", nil,
+		"YAML pattern file(s) for custom event detection (can be specified multiple times)")
+
+	// Enable filename completion for --patterns
+	_ = tailCmd.MarkFlagFilename("patterns", "yaml", "yml")
+
 	// Register completion for event type flags
 	registerEventTypeCompletion(tailCmd, "include-types")
 	registerEventTypeCompletion(tailCmd, "exclude-types")
@@ -103,6 +111,12 @@ func runTail(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("--replay-last and --replay-since cannot be used together")
 	}
 
+	// Build parser from pattern files
+	parser, err := buildParser(tailPatterns)
+	if err != nil {
+		return err
+	}
+
 	// Setup context with signal handling
 	ctx, stop := signal.NotifyContext(context.Background(),
 		syscall.SIGINT, syscall.SIGTERM)
@@ -110,6 +124,11 @@ func runTail(cmd *cobra.Command, args []string) error {
 
 	// Build watch options using functional options pattern
 	var watchOpts []vrclog.WatchOption
+
+	// Add custom parser if specified
+	if parser != nil {
+		watchOpts = append(watchOpts, vrclog.WithParser(parser))
+	}
 
 	if logDir != "" {
 		watchOpts = append(watchOpts, vrclog.WithLogDir(logDir))

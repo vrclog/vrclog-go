@@ -1,0 +1,8 @@
+version: 1
+patterns:
+  - id: poker_hole_cards
+    event_type: poker_hole_cards
+    regex: '\[Seat\]: Draw Local Hole Cards: (?P<card1>\w+), (?P<card2>\w+)'
+  - id: poker_winner
+    event_type: poker_winner
+    regex: '\[PotManager\]: .* player (?P<seat_id>\d+) won (?P<amount>\d+)'

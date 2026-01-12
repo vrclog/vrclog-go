@@ -1,0 +1,4 @@
+version: 1
+patterns:
+  - id: missing_event_type
+    regex: 'test'

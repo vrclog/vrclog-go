@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/vrclog/vrclog-go/internal/logfinder"
-	"github.com/vrclog/vrclog-go/internal/parser"
 	"github.com/vrclog/vrclog-go/internal/tailer"
 )
 
@@ -203,34 +202,66 @@ func (w *Watcher) run(ctx context.Context, eventCh chan<- Event, errCh chan<- er
 }
 
 func (w *Watcher) processLine(ctx context.Context, line string, eventCh chan<- Event, errCh chan<- error) {
-	ev, err := parser.Parse(line)
+	result, err := w.cfg.parser.ParseLine(ctx, line)
+
+	// Process events even if there's an error (e.g., ChainContinueOnError mode)
+	// This ensures partial success from multi-parser chains is not lost
+	hasEvents := len(result.Events) > 0
+
 	if err != nil {
+		// Send error but still process any events we got
+		if hasEvents {
+			// Process events first, then send the error
+			// This allows ChainContinueOnError to emit events + errors
+			for _, ev := range result.Events {
+				// Apply same filters as below
+				if w.cfg.replay.Mode == ReplaySinceTime && ev.Timestamp.Before(w.cfg.replay.Since) {
+					continue
+				}
+				if w.cfg.filter != nil && !w.cfg.filter.Allows(EventType(ev.Type)) {
+					continue
+				}
+				if w.cfg.includeRawLine {
+					ev.RawLine = line
+				}
+				select {
+				case eventCh <- ev:
+				case <-ctx.Done():
+					return
+				}
+			}
+		}
 		sendError(ctx, errCh, &ParseError{Line: line, Err: err})
 		return
 	}
-	if ev == nil {
+
+	if !result.Matched {
 		return // Not a recognized event
 	}
 
-	// Filter by replay time if needed (do this early before other processing)
-	if w.cfg.replay.Mode == ReplaySinceTime && ev.Timestamp.Before(w.cfg.replay.Since) {
-		return
-	}
+	// Process all events from the result
+	for _, ev := range result.Events {
+		// Filter by replay time if needed (do this early before other processing)
+		if w.cfg.replay.Mode == ReplaySinceTime && ev.Timestamp.Before(w.cfg.replay.Since) {
+			continue
+		}
 
-	// Apply event type filter (do this before copying RawLine for efficiency)
-	if w.cfg.filter != nil && !w.cfg.filter.Allows(EventType(ev.Type)) {
-		return
-	}
+		// Apply event type filter (do this before copying RawLine for efficiency)
+		if w.cfg.filter != nil && !w.cfg.filter.Allows(EventType(ev.Type)) {
+			continue
+		}
 
-	// Include raw line if requested
-	if w.cfg.includeRawLine {
-		ev.RawLine = line
-	}
+		// Include raw line if requested
+		if w.cfg.includeRawLine {
+			ev.RawLine = line
+		}
 
-	// Send event
-	select {
-	case eventCh <- *ev:
-	case <-ctx.Done():
+		// Send event
+		select {
+		case eventCh <- ev:
+		case <-ctx.Done():
+			return
+		}
 	}
 }
 
@@ -366,6 +397,11 @@ func sendError(ctx context.Context, errCh chan<- error, err error) {
 // WatchWithOptions creates a watcher using functional options and starts watching.
 // This is the preferred way to create and start a watcher.
 //
+// Note: This function does not return the underlying Watcher, so callers cannot
+// call Close() to perform synchronous shutdown. The watcher will stop when the
+// context is cancelled. For more control over shutdown, use NewWatcherWithOptions
+// and Watcher.Watch() directly.
+//
 // Example:
 //
 //	events, errs, err := vrclog.WatchWithOptions(ctx,
@@ -406,7 +442,7 @@ func NewWatcherWithOptions(opts ...WatchOption) (*Watcher, error) {
 	// Find log directory
 	logDir, err := logfinder.FindLogDir(cfg.logDir)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("finding log directory: %w", err)
 	}
 
 	// Initialize logger (use discard logger if not provided)

@@ -83,4 +83,10 @@ type Event struct {
 
 	// RawLine is the original log line (only included if requested).
 	RawLine string `json:"raw_line,omitempty"`
+
+	// Data contains additional key-value pairs extracted by custom parsers.
+	// For example, a regex parser with named capture groups (?P<key>...) will
+	// populate this map with the captured values.
+	// This field is nil when no custom data is available.
+	Data map[string]string `json:"data,omitempty"`
 }

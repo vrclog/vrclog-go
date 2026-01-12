@@ -23,6 +23,7 @@ var (
 	parseFormat       string
 	parseRaw          bool
 	parseStopOnError  bool
+	parsePatterns     []string
 )
 
 var parseCmd = &cobra.Command{
@@ -75,6 +76,13 @@ func init() {
 	parseCmd.Flags().BoolVar(&parseStopOnError, "stop-on-error", false,
 		"Stop on first error instead of skipping")
 
+	// Pattern file flag
+	parseCmd.Flags().StringSliceVar(&parsePatterns, "patterns", nil,
+		"YAML pattern file(s) for custom event detection (can be specified multiple times)")
+
+	// Enable filename completion for --patterns
+	_ = parseCmd.MarkFlagFilename("patterns", "yaml", "yml")
+
 	// Register completion for event type flags
 	registerEventTypeCompletion(parseCmd, "include-types")
 	registerEventTypeCompletion(parseCmd, "exclude-types")
@@ -105,6 +113,12 @@ func runParse(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
+	// Build parser from pattern files
+	parser, err := buildParser(parsePatterns)
+	if err != nil {
+		return err
+	}
+
 	// Setup context with signal handling
 	ctx, stop := signal.NotifyContext(context.Background(),
 		syscall.SIGINT, syscall.SIGTERM)
@@ -112,6 +126,11 @@ func runParse(cmd *cobra.Command, args []string) error {
 
 	// Build parse options
 	var opts []vrclog.ParseDirOption
+
+	// Add custom parser if specified
+	if parser != nil {
+		opts = append(opts, vrclog.WithDirParser(parser))
+	}
 
 	if parseLogDir != "" {
 		opts = append(opts, vrclog.WithDirLogDir(parseLogDir))

@@ -11,10 +11,14 @@ import (
 	"time"
 
 	"github.com/vrclog/vrclog-go/internal/logfinder"
-	"github.com/vrclog/vrclog-go/internal/parser"
 )
 
 // ParseLine parses a single VRChat log line into an Event.
+//
+// LEGACY API - This function has several limitations:
+//   - Cannot be cancelled or timeout (uses context.Background internally)
+//   - Returns only the first event if multiple events are parsed from one line
+//   - For more control, use ParseFile with custom parser options
 //
 // Return values:
 //   - (*Event, nil): Successfully parsed event
@@ -32,7 +36,15 @@ import (
 //	}
 //	// event == nil && err == nil means line is not a recognized event
 func ParseLine(line string) (*Event, error) {
-	return parser.Parse(line)
+	// Maintain backward compatibility by using DefaultParser
+	result, err := DefaultParser{}.ParseLine(context.Background(), line)
+	if err != nil {
+		return nil, err
+	}
+	if !result.Matched || len(result.Events) == 0 {
+		return nil, nil
+	}
+	return &result.Events[0], nil
 }
 
 // ParseFile parses a VRChat log file and returns an iterator over events.
@@ -85,7 +97,7 @@ func ParseFile(ctx context.Context, path string, opts ...ParseOption) iter.Seq2[
 			}
 
 			line := scanner.Text()
-			ev, err := parser.Parse(line)
+			result, err := cfg.parser.ParseLine(ctx, line)
 			if err != nil {
 				if cfg.stopOnError {
 					yield(Event{}, &ParseError{Line: line, Err: err})
@@ -94,30 +106,33 @@ func ParseFile(ctx context.Context, path string, opts ...ParseOption) iter.Seq2[
 				// Skip malformed lines by default
 				continue
 			}
-			if ev == nil {
+			if !result.Matched {
 				continue // Not a recognized event
 			}
 
-			// Apply event type filter
-			if cfg.filter != nil && !cfg.filter.Allows(EventType(ev.Type)) {
-				continue
-			}
+			// Process all events from the result
+			for _, ev := range result.Events {
+				// Apply event type filter
+				if cfg.filter != nil && !cfg.filter.Allows(EventType(ev.Type)) {
+					continue
+				}
 
-			// Apply time range filter
-			if !cfg.since.IsZero() && ev.Timestamp.Before(cfg.since) {
-				continue
-			}
-			if !cfg.until.IsZero() && ev.Timestamp.After(cfg.until) {
-				return // Past the time window, stop iteration
-			}
+				// Apply time range filter
+				if !cfg.since.IsZero() && ev.Timestamp.Before(cfg.since) {
+					continue
+				}
+				if !cfg.until.IsZero() && ev.Timestamp.After(cfg.until) {
+					return // Past the time window, stop iteration
+				}
 
-			// Include raw line if requested
-			if cfg.includeRawLine {
-				ev.RawLine = line
-			}
+				// Include raw line if requested
+				if cfg.includeRawLine {
+					ev.RawLine = line
+				}
 
-			if !yield(*ev, nil) {
-				return // Consumer requested stop (break)
+				if !yield(ev, nil) {
+					return // Consumer requested stop (break)
+				}
 			}
 		}
 
@@ -250,6 +265,16 @@ func WithDirStopOnError(stop bool) ParseDirOption {
 	}
 }
 
+// WithDirParser sets a custom parser for ParseDir.
+// If p is nil, this option has no effect (the default parser remains active).
+func WithDirParser(p Parser) ParseDirOption {
+	return func(c *parseDirConfig) {
+		if p != nil {
+			c.parser = p
+		}
+	}
+}
+
 // ParseDir parses all VRChat log files in a directory, yielding events
 // in chronological order (by file modification time, oldest first).
 //
@@ -304,6 +329,9 @@ func ParseDir(ctx context.Context, opts ...ParseDirOption) iter.Seq2[Event, erro
 		}
 
 		// Build ParseOptions from config
+		// NOTE: This rebuilds the filter from maps to slices, which is somewhat inefficient.
+		// A future optimization could pass parseConfig directly or use internal options.
+		// However, the impact is minimal since filters are typically small.
 		var parseOpts []ParseOption
 		if cfg.filter != nil {
 			include := make([]EventType, 0, len(cfg.filter.include))
@@ -324,6 +352,9 @@ func ParseDir(ctx context.Context, opts ...ParseDirOption) iter.Seq2[Event, erro
 		}
 		if cfg.stopOnError {
 			parseOpts = append(parseOpts, WithParseStopOnError(true))
+		}
+		if cfg.parser != nil {
+			parseOpts = append(parseOpts, WithParseParser(cfg.parser))
 		}
 
 		// Parse each file

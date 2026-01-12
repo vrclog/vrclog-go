@@ -19,6 +19,9 @@ func Parse(line string) (*event.Event, error) {
 	// Trim trailing CR for Windows CRLF compatibility
 	line = strings.TrimRight(line, "\r")
 
+	// Sanitize invalid UTF-8 sequences to prevent issues in JSON output
+	line = strings.ToValidUTF8(line, "\uFFFD")
+
 	// Quick exclusion check
 	for _, pattern := range exclusionPatterns {
 		if strings.Contains(line, pattern) {

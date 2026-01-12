@@ -418,3 +418,88 @@ func TestParseDir_WithIncludeTypes(t *testing.T) {
 		t.Errorf("got type %v, want %v", events[0].Type, vrclog.EventPlayerJoin)
 	}
 }
+
+func TestParseFile_WithCustomParser(t *testing.T) {
+	dir := t.TempDir()
+	logFile := filepath.Join(dir, "output_log_test.txt")
+
+	content := "2024.01.15 12:00:00 Log        -  [Behaviour] OnPlayerJoined User1\n"
+	if err := os.WriteFile(logFile, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Custom parser that adds a prefix to player names
+	customParser := vrclog.ParserFunc(func(ctx context.Context, line string) (vrclog.ParseResult, error) {
+		// Use default parser first
+		result, err := vrclog.DefaultParser{}.ParseLine(ctx, line)
+		if err != nil || !result.Matched {
+			return result, err
+		}
+		// Modify events
+		for i := range result.Events {
+			result.Events[i].PlayerName = "Custom-" + result.Events[i].PlayerName
+		}
+		return result, nil
+	})
+
+	ctx := context.Background()
+	var events []vrclog.Event
+
+	for ev, err := range vrclog.ParseFile(ctx, logFile, vrclog.WithParseParser(customParser)) {
+		if err != nil {
+			t.Fatalf("ParseFile error: %v", err)
+		}
+		events = append(events, ev)
+	}
+
+	if len(events) != 1 {
+		t.Fatalf("got %d events, want 1", len(events))
+	}
+
+	if events[0].PlayerName != "Custom-User1" {
+		t.Errorf("got PlayerName %q, want Custom-User1", events[0].PlayerName)
+	}
+}
+
+func TestParseDir_WithCustomParser(t *testing.T) {
+	dir := t.TempDir()
+	logFile := filepath.Join(dir, "output_log_test.txt")
+
+	content := "2024.01.15 12:00:00 Log        -  [Behaviour] OnPlayerJoined User1\n"
+	if err := os.WriteFile(logFile, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Custom parser that adds a suffix to player names
+	customParser := vrclog.ParserFunc(func(ctx context.Context, line string) (vrclog.ParseResult, error) {
+		result, err := vrclog.DefaultParser{}.ParseLine(ctx, line)
+		if err != nil || !result.Matched {
+			return result, err
+		}
+		for i := range result.Events {
+			result.Events[i].PlayerName = result.Events[i].PlayerName + "-Modified"
+		}
+		return result, nil
+	})
+
+	ctx := context.Background()
+	var events []vrclog.Event
+
+	for ev, err := range vrclog.ParseDir(ctx,
+		vrclog.WithDirLogDir(dir),
+		vrclog.WithDirParser(customParser),
+	) {
+		if err != nil {
+			t.Fatalf("ParseDir error: %v", err)
+		}
+		events = append(events, ev)
+	}
+
+	if len(events) != 1 {
+		t.Fatalf("got %d events, want 1", len(events))
+	}
+
+	if events[0].PlayerName != "User1-Modified" {
+		t.Errorf("got PlayerName %q, want User1-Modified", events[0].PlayerName)
+	}
+}

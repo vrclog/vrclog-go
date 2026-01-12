@@ -18,6 +18,7 @@ type watchConfig struct {
 	maxReplayLines int
 	logger         *slog.Logger
 	filter         *compiledFilter
+	parser         Parser // NEW: Parser for log lines
 }
 
 // defaultWatchConfig returns a watchConfig with sensible defaults.
@@ -25,6 +26,7 @@ func defaultWatchConfig() *watchConfig {
 	return &watchConfig{
 		pollInterval:   2 * time.Second,
 		maxReplayLines: DefaultMaxReplayLastN,
+		parser:         DefaultParser{}, // NEW: Default parser
 	}
 }
 
@@ -63,8 +65,8 @@ func (c *watchConfig) validate() error {
 	}
 
 	// Validate PollInterval
-	if c.pollInterval < 0 {
-		return fmt.Errorf("poll interval must be non-negative, got %v", c.pollInterval)
+	if c.pollInterval <= 0 {
+		return fmt.Errorf("poll interval must be positive, got %v", c.pollInterval)
 	}
 
 	return nil
@@ -132,11 +134,35 @@ func WithMaxReplayLines(max int) WatchOption {
 	}
 }
 
-// WithLogger sets the slog logger for debug output.
-// If nil (default), logging is disabled.
+// WithLogger sets a custom logger for debug output.
+// If logger is nil, logging is disabled (default behavior).
 func WithLogger(logger *slog.Logger) WatchOption {
 	return func(c *watchConfig) {
 		c.logger = logger
+	}
+}
+
+// WithParser sets a custom parser for log line parsing.
+// If p is nil, this option has no effect (the default parser remains active).
+// Use this to customize how log lines are interpreted.
+func WithParser(p Parser) WatchOption {
+	return func(c *watchConfig) {
+		if p != nil {
+			c.parser = p
+		}
+	}
+}
+
+// WithParsers combines multiple parsers using ChainAll mode.
+// At least one parser is required.
+func WithParsers(parsers ...Parser) WatchOption {
+	return func(c *watchConfig) {
+		if len(parsers) > 0 {
+			c.parser = &ParserChain{
+				Mode:    ChainAll,
+				Parsers: parsers,
+			}
+		}
 	}
 }
 
@@ -187,11 +213,14 @@ type parseConfig struct {
 	since          time.Time
 	until          time.Time
 	stopOnError    bool
+	parser         Parser // NEW: Parser for log lines
 }
 
 // defaultParseConfig returns a parseConfig with sensible defaults.
 func defaultParseConfig() *parseConfig {
-	return &parseConfig{}
+	return &parseConfig{
+		parser: DefaultParser{}, // NEW: Default parser
+	}
 }
 
 // applyParseOptions applies functional options to a parseConfig.
@@ -263,9 +292,23 @@ func WithParseSince(since time.Time) ParseOption {
 }
 
 // WithParseUntil filters events to only include those before the given time.
+//
+// Note: This optimization assumes timestamps in log files are monotonically
+// increasing. If timestamps are out of order (e.g., due to timezone changes),
+// some events may be skipped. For guaranteed completeness, omit this option.
 func WithParseUntil(until time.Time) ParseOption {
 	return func(c *parseConfig) {
 		c.until = until
+	}
+}
+
+// WithParseParser sets a custom parser for ParseFile/ParseDir.
+// If p is nil, this option has no effect (the default parser remains active).
+func WithParseParser(p Parser) ParseOption {
+	return func(c *parseConfig) {
+		if p != nil {
+			c.parser = p
+		}
 	}
 }
 
