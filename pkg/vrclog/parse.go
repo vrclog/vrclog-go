@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"errors"
+	"io"
 	"iter"
 	"os"
 	"path/filepath"
@@ -11,6 +12,7 @@ import (
 	"time"
 
 	"github.com/vrclog/vrclog-go/internal/logfinder"
+	"github.com/vrclog/vrclog-go/internal/safefile"
 )
 
 // ParseLine parses a single VRChat log line into an Event.
@@ -84,26 +86,127 @@ func ParseFile(ctx context.Context, path string, opts ...ParseOption) iter.Seq2[
 		}
 		defer file.Close()
 
-		scanner := bufio.NewScanner(file)
-		// Increase buffer size for long lines
-		buf := make([]byte, 0, 64*1024)
-		scanner.Buffer(buf, 512*1024)
+		// Use bufio.Reader instead of Scanner to handle lines that exceed buffer limits
+		const maxLineLength = 512 * 1024 // 512KB max per line
+		reader := bufio.NewReaderSize(file, 64*1024)
+		lineNumber := 0
 
-		for scanner.Scan() {
+		for {
+			lineNumber++
+
 			// Context cancellation check
 			if err := ctx.Err(); err != nil {
 				yield(Event{}, err)
 				return
 			}
 
-			line := scanner.Text()
-			result, err := cfg.parser.ParseLine(ctx, line)
+			// Read line (may be partial if exceeds buffer)
+			lineBytes, isPrefix, err := reader.ReadLine()
 			if err != nil {
+				if err == io.EOF {
+					break // End of file
+				}
+				yield(Event{}, err)
+				return
+			}
+
+			// Handle lines that exceed buffer
+			var line string
+			if isPrefix {
+				// Line is too long - read and discard rest of line
+				length := len(lineBytes)
+				for isPrefix {
+					moreLine, morePrefix, readErr := reader.ReadLine()
+					if readErr != nil {
+						if readErr == io.EOF {
+							break
+						}
+						yield(Event{}, readErr)
+						return
+					}
+					length += len(moreLine)
+					isPrefix = morePrefix
+				}
+
+				// Handle long line based on stopOnError setting
+				if cfg.stopOnError {
+					yield(Event{}, &LineTooLongError{
+						LineNumber: lineNumber,
+						Length:     length,
+						MaxLength:  maxLineLength,
+					})
+					return
+				}
+				// Skip long line and continue (don't parse it)
+				continue
+			}
+
+			line = string(lineBytes)
+			result, err := cfg.parser.ParseLine(ctx, line)
+
+			// Process events even if there's an error (e.g., ChainContinueOnError mode)
+			// This ensures partial success from multi-parser chains is not lost
+			hasEvents := len(result.Events) > 0
+
+			if err != nil {
+				// Check for context cancellation first to avoid wrapping it in ParseError
+				if ctxErr := ctx.Err(); ctxErr != nil {
+					// Emit any events we got before cancellation
+					if hasEvents {
+						for _, ev := range result.Events {
+							if cfg.filter != nil && !cfg.filter.Allows(EventType(ev.Type)) {
+								continue
+							}
+							if !cfg.since.IsZero() && ev.Timestamp.Before(cfg.since) {
+								continue
+							}
+							if !cfg.until.IsZero() && !ev.Timestamp.Before(cfg.until) {
+								return
+							}
+							if cfg.includeRawLine {
+								ev.RawLine = line
+							}
+							if !yield(ev, nil) {
+								return
+							}
+						}
+					}
+					yield(Event{}, ctxErr)
+					return
+				}
+
+				// Emit any events we got before handling the error
+				if hasEvents {
+					for _, ev := range result.Events {
+						// Apply event type filter
+						if cfg.filter != nil && !cfg.filter.Allows(EventType(ev.Type)) {
+							continue
+						}
+
+						// Apply time range filter
+						if !cfg.since.IsZero() && ev.Timestamp.Before(cfg.since) {
+							continue
+						}
+						if !cfg.until.IsZero() && !ev.Timestamp.Before(cfg.until) {
+							return // Past the time window (>= until), stop iteration
+						}
+
+						// Include raw line if requested
+						if cfg.includeRawLine {
+							ev.RawLine = line
+						}
+
+						if !yield(ev, nil) {
+							return // Consumer requested stop (break)
+						}
+					}
+				}
+
 				if cfg.stopOnError {
 					yield(Event{}, &ParseError{Line: line, Err: err})
 					return
 				}
-				// Skip malformed lines by default
+				// Skip malformed lines by default (but already emitted any events)
 				continue
 			}
 			if !result.Matched {
@@ -121,8 +224,8 @@ func ParseFile(ctx context.Context, path string, opts ...ParseOption) iter.Seq2[
 				if !cfg.since.IsZero() && ev.Timestamp.Before(cfg.since) {
 					continue
 				}
-				if !cfg.until.IsZero() && ev.Timestamp.After(cfg.until) {
-					return // Past the time window, stop iteration
+				if !cfg.until.IsZero() && !ev.Timestamp.Before(cfg.until) {
+					return // Past the time window (>= until), stop iteration
 				}
 
 				// Include raw line if requested
@@ -135,11 +238,7 @@ func ParseFile(ctx context.Context, path string, opts ...ParseOption) iter.Seq2[
 				}
 			}
 		}
-
-		// Check for scanner errors
-		if err := scanner.Err(); err != nil {
-			yield(Event{}, err)
-		}
+		// No need to check for reader errors - they're returned directly from ReadLine
 	}
 }
 
@@ -211,6 +310,9 @@ func WithDirLogDir(dir string) ParseDirOption {
 
 // WithDirPaths sets explicit file paths to parse.
 // If set, LogDir is ignored.
+//
+// Files are parsed in the order provided (not sorted by modification time).
+// The caller is responsible for providing files in the desired order.
 func WithDirPaths(paths ...string) ParseDirOption {
 	return func(c *parseDirConfig) {
 		c.paths = paths
@@ -378,12 +480,26 @@ func ParseDir(ctx context.Context, opts ...ParseDirOption) iter.Seq2[Event, erro
 				}
 			}
 		}
+
+		// Check for context cancellation after processing all files
+		// This ensures cancellation errors aren't lost when stopOnError=false
+		if err := ctx.Err(); err != nil {
+			yield(Event{}, err)
+		}
 	}
 }
 
 // listLogFiles returns all VRChat log files in the directory,
 // sorted by modification time (oldest first).
 func listLogFiles(dir string) ([]string, error) {
+	// Pre-check: verify directory is accessible before globbing
+	// This catches permission errors that filepath.Glob might hide
+	dirFile, err := os.Open(dir)
+	if err != nil {
+		return nil, err
+	}
+	dirFile.Close()
+
 	pattern := filepath.Join(dir, "output_log_*.txt")
 	matches, err := filepath.Glob(pattern)
 	if err != nil {
@@ -400,12 +516,25 @@ func listLogFiles(dir string) ([]string, error) {
 		modTime int64
 	}
 	files := make([]fileInfo, 0, len(matches))
+	var firstErr error
 	for _, path := range matches {
-		info, err := os.Stat(path)
+		f, info, err := safefile.OpenRegular(path)
 		if err != nil {
-			continue // Skip files we can't stat
+			// Remember first error for potential error reporting
+			// Skip ErrNotRegularFile since it's expected (not a real error)
+			if firstErr == nil && !errors.Is(err, safefile.ErrNotRegularFile) {
+				firstErr = err
+			}
+			continue // Skip files we can't open or aren't regular
 		}
+		f.Close() // Close immediately - we only needed the stat info
+
 		files = append(files, fileInfo{path: path, modTime: info.ModTime().UnixNano()})
+	}
+
+	// If we found matches but couldn't use any, return the first error encountered
+	if len(matches) > 0 && len(files) == 0 && firstErr != nil {
+		return nil, firstErr
 	}
 
 	sort.Slice(files, func(i, j int) bool {

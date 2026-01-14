@@ -1,6 +1,9 @@
 # vrclog-go
 
 [![Go Reference](https://pkg.go.dev/badge/github.com/vrclog/vrclog-go.svg)](https://pkg.go.dev/github.com/vrclog/vrclog-go)
+[![CI](https://github.com/vrclog/vrclog-go/actions/workflows/ci.yml/badge.svg)](https://github.com/vrclog/vrclog-go/actions/workflows/ci.yml)
+[![Go Report Card](https://goreportcard.com/badge/github.com/vrclog/vrclog-go)](https://goreportcard.com/report/github.com/vrclog/vrclog-go)
+[![codecov](https://codecov.io/gh/vrclog/vrclog-go/branch/main/graph/badge.svg)](https://codecov.io/gh/vrclog/vrclog-go)
 
 VRChatのログファイルを解析・監視するGoライブラリ＆CLIツール。
 
@@ -21,7 +24,7 @@ VRChatのログファイルを解析・監視するGoライブラリ＆CLIツー
 
 ## 動作要件
 
-- Go 1.23以上（`iter.Seq2`イテレータサポートに必要）
+- Go 1.25以上（このプロジェクトの最小バージョン。`iter.Seq2`はGo 1.23で導入されました）
 - Windows（実際のVRChatログ監視用）
 
 ## インストール
@@ -38,15 +41,48 @@ cd vrclog-go
 go build -o vrclog ./cmd/vrclog/
 ```
 
+## クイックスタート
+
+30秒で始める：
+
+```bash
+# 1. インストール
+go install github.com/vrclog/vrclog-go/cmd/vrclog@latest
+
+# 2. VRChatイベントを監視（VRChatが起動している必要があります）
+vrclog tail
+```
+
+ライブラリの使い方や高度な機能については、下記の[ライブラリとしての使用](#ライブラリとしての使用)を参照してください。
+
 ## CLIの使い方
 
 ### コマンド一覧
 
 ```bash
-vrclog tail      # VRChatログを監視（リアルタイム）
-vrclog parse     # VRChatログを解析（バッチ/オフライン）
-vrclog version   # バージョン情報を表示
-vrclog --help    # ヘルプを表示
+vrclog tail       # VRChatログを監視（リアルタイム）
+vrclog parse      # VRChatログを解析（バッチ/オフライン）
+vrclog completion # シェル補完スクリプトを生成
+vrclog version    # バージョン情報を表示
+vrclog --help     # ヘルプを表示
+```
+
+### シェル補完
+
+タブ補完を有効にする：
+
+```bash
+# Bash
+vrclog completion bash > /etc/bash_completion.d/vrclog
+
+# Zsh
+vrclog completion zsh > "${fpath[1]}/_vrclog"
+
+# Fish
+vrclog completion fish > ~/.config/fish/completions/vrclog.fish
+
+# PowerShell
+vrclog completion powershell | Out-String | Invoke-Expression
 ```
 
 ### ストリーミング vs バッチ
@@ -110,7 +146,7 @@ vrclog tail --replay-since "2024-01-15T12:00:00Z"
 
 | フラグ | デフォルト | 説明 |
 |--------|------------|------|
-| `--replay-last` | -1（無効） | 直近N行をリプレイ（0 = 先頭から） |
+| `--replay-last` | -1（無効） | 直近N非空行をリプレイ（0 = 先頭から） |
 | `--replay-since` | | 指定時刻以降をリプレイ（RFC3339形式） |
 
 注意: `--replay-last` と `--replay-since` は同時に使用できません。
@@ -222,10 +258,15 @@ func main() {
 | `WithIncludeTypes(types...)` | 指定したイベントタイプのみを取得 |
 | `WithExcludeTypes(types...)` | 指定したイベントタイプを除外 |
 | `WithReplayFromStart()` | ファイル先頭から読み込み |
-| `WithReplayLastN(n)` | 直近N行を読み込んでから監視開始 |
-| `WithReplaySinceTime(t)` | 指定時刻以降のイベントを読み込み |
+| `WithReplayLastN(n)` | 直近N非空行を読み込んでから監視開始 |
+| `WithReplaySinceTime(since)` | 指定時刻以降のイベントを読み込み |
 | `WithMaxReplayLines(n)` | ReplayLastNの上限（デフォルト: 10000） |
+| `WithParser(p)` | カスタムパーサーを使用（デフォルトを置換） |
+| `WithParsers(parsers...)` | 複数のパーサーを結合（ChainAllモード） |
 | `WithLogger(logger)` | デバッグ用のslog.Loggerを設定 |
+| `WithWaitForLogs(wait)` | ディレクトリは存在するがログファイルがない場合に待機 |
+| `WithMaxReplayBytes(max)` | リプレイ中に読み込む最大バイト数（デフォルト: 10MB） |
+| `WithMaxReplayLineBytes(max)` | リプレイ中の1行あたりの最大バイト数（デフォルト: 512KB） |
 
 ### Watcherを使った高度な使用法
 
@@ -290,6 +331,7 @@ for ev, err := range vrclog.ParseDir(ctx,
 | `WithParseUntil(t)` | 指定時刻より前のイベントを取得 |
 | `WithParseIncludeRawLine(bool)` | 生のログ行を含める |
 | `WithParseStopOnError(bool)` | 最初のエラーで停止（デフォルト: スキップ） |
+| `WithParseParser(p)` | カスタムパーサーを使用（デフォルトを置換） |
 
 ### ParseDir オプション
 
@@ -302,6 +344,7 @@ for ev, err := range vrclog.ParseDir(ctx,
 | `WithDirTimeRange(since, until)` | 時間範囲でフィルタ |
 | `WithDirIncludeRawLine(bool)` | 生のログ行を含める |
 | `WithDirStopOnError(bool)` | 最初のエラーで停止 |
+| `WithDirParser(p)` | カスタムパーサーを使用（デフォルトを置換） |
 
 ### 単一行のパース
 
@@ -315,6 +358,162 @@ if err != nil {
 }
 // event == nil && err == nil の場合、認識されないイベント行
 ```
+
+## カスタムパーサー
+
+### Parserインターフェース
+
+vrclog-goは非標準ログ形式の処理や追加データ抽出のためのカスタムパーサーをサポートしています。
+
+#### Parserインターフェース定義
+
+```go
+type Parser interface {
+    ParseLine(ctx context.Context, line string) (ParseResult, error)
+}
+
+type ParseResult struct {
+    Events  []event.Event
+    Matched bool
+}
+```
+
+#### カスタムパーサーの使用
+
+```go
+// Watchで使用
+events, errs, err := vrclog.WatchWithOptions(ctx,
+    vrclog.WithParser(myCustomParser),
+)
+
+// ParseFileで使用
+for ev, err := range vrclog.ParseFile(ctx, "log.txt",
+    vrclog.WithParseParser(myCustomParser),
+) {
+    // ...
+}
+
+// ParseDirで使用
+for ev, err := range vrclog.ParseDir(ctx,
+    vrclog.WithDirParser(myCustomParser),
+) {
+    // ...
+}
+```
+
+#### ParserChain
+
+複数のパーサーを組み合わせて複雑な解析を実現:
+
+```go
+chain := &vrclog.ParserChain{
+    Mode: vrclog.ChainAll, // ChainFirst, ChainContinueOnError
+    Parsers: []vrclog.Parser{
+        vrclog.DefaultParser{},  // 組み込みイベント
+        customParser,            // カスタムイベント
+    },
+}
+
+events, errs, err := vrclog.WatchWithOptions(ctx,
+    vrclog.WithParser(chain),
+)
+```
+
+| モード | 動作 |
+|-------|------|
+| `ChainAll` | 全パーサーを実行し、結果を結合 |
+| `ChainFirst` | 最初にマッチしたパーサーで停止 |
+| `ChainContinueOnError` | エラーの出たパーサーをスキップして継続 |
+
+#### ParserFuncアダプター
+
+関数をパーサーに変換:
+
+```go
+myParser := vrclog.ParserFunc(func(ctx context.Context, line string) (vrclog.ParseResult, error) {
+    // パース処理
+    return vrclog.ParseResult{Events: events, Matched: true}, nil
+})
+```
+
+### YAMLパターンファイル (RegexParser)
+
+Goコードを書かずにYAMLパターンファイルでカスタムイベントを定義できます。
+
+#### パターンファイル形式
+
+```yaml
+version: 1
+patterns:
+  - id: poker_hole_cards
+    event_type: poker_hole_cards
+    regex: '\[Seat\]: Draw Local Hole Cards: (?P<card1>\w+), (?P<card2>\w+)'
+  - id: poker_winner
+    event_type: poker_winner
+    regex: '\[PotManager\]: .* player (?P<seat_id>\d+) won (?P<amount>\d+)'
+```
+
+| フィールド | 必須 | 説明 |
+|-----------|------|------|
+| `version` | はい | スキーマバージョン（現在は `1`） |
+| `id` | はい | パターンの一意識別子 |
+| `event_type` | はい | `Event.Type`フィールドの値 |
+| `regex` | はい | 正規表現（最大512バイト） |
+
+名前付きキャプチャグループ `(?P<name>...)` は `Event.Data` に抽出されます。
+
+#### RegexParserの使用
+
+```go
+import "github.com/vrclog/vrclog-go/pkg/vrclog/pattern"
+
+// ファイルから読み込み
+parser, err := pattern.NewRegexParserFromFile("patterns.yaml")
+if err != nil {
+    log.Fatal(err)
+}
+
+// Watchで使用
+events, errs, err := vrclog.WatchWithOptions(ctx,
+    vrclog.WithParser(parser),
+)
+
+// デフォルトパーサーと組み合わせ
+chain := &vrclog.ParserChain{
+    Mode: vrclog.ChainAll,
+    Parsers: []vrclog.Parser{
+        vrclog.DefaultParser{},
+        parser,
+    },
+}
+```
+
+#### 出力例
+
+入力ログ行:
+```
+2024.01.15 23:59:59 Debug - [Seat]: Draw Local Hole Cards: Jc, 6d
+```
+
+出力イベント:
+```json
+{
+  "type": "poker_hole_cards",
+  "timestamp": "2024-01-15T23:59:59+09:00",
+  "data": {
+    "card1": "Jc",
+    "card2": "6d"
+  }
+}
+```
+
+#### セキュリティ制限
+
+| 制限 | 値 | 目的 |
+|------|-----|------|
+| 最大ファイルサイズ | 1 MB | OOM攻撃防止 |
+| 最大パターン長 | 512バイト | ReDoS軽減 |
+| ファイルタイプ | 通常ファイルのみ | FIFO/デバイスDoS防止 |
 
 ## イベントタイプ
 
@@ -330,13 +529,14 @@ if err != nil {
 
 | JSONフィールド | Goフィールド | 型 | 説明 |
 |----------------|--------------|-----|------|
-| `type` | `Type` | `string` | イベントタイプ（`world_join`, `player_join`, `player_left`） |
+| `type` | `Type` | `string` | イベントタイプ（`world_join`, `player_join`, `player_left`、またはカスタム） |
 | `timestamp` | `Timestamp` | `string` | RFC3339形式のタイムスタンプ |
 | `player_name` | `PlayerName` | `string` | プレイヤー表示名（プレイヤーイベント） |
 | `player_id` | `PlayerID` | `string` | `usr_xxx`形式のプレイヤーID（player_joinのみ） |
 | `world_name` | `WorldName` | `string` | ワールド名（world_joinのみ） |
 | `world_id` | `WorldID` | `string` | `wrld_xxx`形式のワールドID（world_joinのみ） |
 | `instance_id` | `InstanceID` | `string` | 完全なインスタンスID（world_joinのみ） |
+| `data` | `Data` | `map[string]string` | カスタムキー・バリューデータ（カスタムパーサーのみ） |
 | `raw_line` | `RawLine` | `string` | 元のログ行（IncludeRawLine有効時） |
 
 ## 実行時の動作
@@ -380,7 +580,9 @@ case err := <-errs:
 | `ErrNoLogFiles` | ディレクトリにログファイルがない |
 | `ErrWatcherClosed` | Close後にWatchが呼ばれた |
 | `ErrAlreadyWatching` | Watchが二重に呼ばれた |
+| `ErrReplayLimitExceeded` | リプレイがメモリ制限を超過（maxReplayBytesまたはmaxReplayLineBytes） |
 | `ParseError` | 不正なログ行（元のエラーをラップ） |
+| `LineTooLongError` | ログ行が最大長を超過（512KB） |
 | `WatchError` | Watch操作エラー（操作タイプを含む） |
 
 ## 出力形式
@@ -412,7 +614,8 @@ case err := <-errs:
 vrclog-go/
 ├── cmd/vrclog/        # CLIアプリケーション
 ├── pkg/vrclog/        # 公開API
-│   └── event/         # イベント型定義
+│   ├── event/         # イベント型定義
+│   └── pattern/       # カスタムパターンマッチング（YAML）
 └── internal/          # 内部パッケージ
     ├── parser/        # ログ行パーサー
     ├── tailer/        # ファイルテーリング
@@ -434,6 +637,20 @@ go test -race ./...
 # カバレッジ付き
 go test -cover ./...
 ```
+
+## FAQ
+
+### Q: Windows以外で使えますか？
+A: いいえ。VRChat PCクライアントはWindowsのみで動作するため、このライブラリもWindows専用です。ただし、ログファイルをコピーすれば他のOSでオフライン解析は可能です。
+
+### Q: ログファイルはどこにありますか？
+A: `%LOCALAPPDATA%Low\VRChat\VRChat\output_log_*.txt` にあります。
+
+### Q: リアルタイム監視が動かないのですが？
+A: VRChatが起動しているか確認してください。`WithWaitForLogs(true)` オプションを使うとログファイルが作成されるまで待機します。
+
+### Q: iter.Seq2とは何ですか？
+A: Go 1.23で導入されたイテレータ型です。メモリ効率の良いストリーミング処理が可能です。詳細は[Go公式ドキュメント](https://go.dev/doc/go1.23)を参照してください。
 
 ## コントリビューション
 

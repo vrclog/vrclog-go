@@ -132,6 +132,28 @@ func TestValidate_NoPatterns(t *testing.T) {
 	assert.Contains(t, err.Error(), "at least one pattern")
 }
 
+func TestValidate_TooManyPatterns(t *testing.T) {
+	// Create more patterns than MaxPatternCount (1000)
+	patterns := make([]pattern.Pattern, pattern.MaxPatternCount+1)
+	for i := range patterns {
+		patterns[i] = pattern.Pattern{
+			ID:        "pattern_" + string(rune('0'+i%10)),
+			EventType: "test",
+			Regex:     "test",
+		}
+	}
+	pf := &pattern.PatternFile{
+		Version:  1,
+		Patterns: patterns,
+	}
+	err := pf.Validate()
+	require.Error(t, err)
+	var valErr *pattern.ValidationError
+	require.True(t, errors.As(err, &valErr))
+	assert.Contains(t, err.Error(), "too many patterns")
+	assert.Contains(t, err.Error(), "maximum allowed is 1000")
+}
+
 func TestValidate_MissingID(t *testing.T) {
 	pf := &pattern.PatternFile{
 		Version: 1,

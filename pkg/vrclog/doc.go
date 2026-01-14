@@ -3,6 +3,7 @@
 // This package allows you to:
 //   - Parse VRChat log lines into structured events
 //   - Monitor log files in real-time for new events
+//   - Define custom event patterns via YAML configuration
 //   - Build tools like join notifications, history viewers, etc.
 //
 // # Basic Usage
@@ -49,6 +50,31 @@
 //	} else if event != nil {
 //	    // process event
 //	}
+//
+// # Custom Parsers
+//
+// Implement the [Parser] interface for custom log parsing:
+//
+//	type Parser interface {
+//	    ParseLine(ctx context.Context, line string) (ParseResult, error)
+//	}
+//
+// Use [ParserChain] to combine multiple parsers:
+//
+//	chain := &vrclog.ParserChain{
+//	    Mode:    vrclog.ChainAll,
+//	    Parsers: []vrclog.Parser{vrclog.DefaultParser{}, customParser},
+//	}
+//
+// # YAML Pattern Files
+//
+// For pattern-based parsing without code, use the [pattern] subpackage:
+//
+//	import "github.com/vrclog/vrclog-go/pkg/vrclog/pattern"
+//
+//	parser, err := pattern.NewRegexParserFromFile("patterns.yaml")
+//
+// See the [pattern] package for details on YAML format and usage.
 //
 // # Platform Support
 //

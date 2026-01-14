@@ -152,12 +152,13 @@ func TestResolveAndValidateLogDir(t *testing.T) {
 	}
 }
 
-func TestResolveAndValidateLogDir_Empty(t *testing.T) {
+func TestResolveAndValidateLogDir_EmptyDir(t *testing.T) {
 	dir := t.TempDir()
 
+	// Directory exists but has no log files - should still return resolved path
 	resolved := resolveAndValidateLogDir(dir)
-	if resolved != "" {
-		t.Error("resolveAndValidateLogDir() = non-empty, want empty for dir without log files")
+	if resolved == "" {
+		t.Error("resolveAndValidateLogDir() = empty, want non-empty for existing dir even without log files")
 	}
 }
 

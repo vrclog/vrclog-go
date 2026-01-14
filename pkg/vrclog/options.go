@@ -11,22 +11,27 @@ type WatchOption func(*watchConfig)
 
 // watchConfig holds internal configuration for the watcher.
 type watchConfig struct {
-	logDir         string
-	pollInterval   time.Duration
-	includeRawLine bool
-	replay         ReplayConfig
-	maxReplayLines int
-	logger         *slog.Logger
-	filter         *compiledFilter
-	parser         Parser // NEW: Parser for log lines
+	logDir             string
+	pollInterval       time.Duration
+	includeRawLine     bool
+	replay             ReplayConfig
+	maxReplayLines     int
+	maxReplayBytes     int  // Maximum total bytes for replay (0 = unlimited)
+	maxReplayLineBytes int  // Maximum bytes per line for replay (0 = unlimited)
+	waitForLogs        bool // Wait for log files to appear if directory exists but is empty
+	logger             *slog.Logger
+	filter             *compiledFilter
+	parser             Parser // NEW: Parser for log lines
 }
 
 // defaultWatchConfig returns a watchConfig with sensible defaults.
 func defaultWatchConfig() *watchConfig {
 	return &watchConfig{
-		pollInterval:   2 * time.Second,
-		maxReplayLines: DefaultMaxReplayLastN,
-		parser:         DefaultParser{}, // NEW: Default parser
+		pollInterval:       2 * time.Second,
+		maxReplayLines:     DefaultMaxReplayLastN,
+		maxReplayBytes:     10 * 1024 * 1024, // 10MB default
+		maxReplayLineBytes: 512 * 1024,       // 512KB default
+		parser:             DefaultParser{},  // NEW: Default parser
 	}
 }
 
@@ -69,6 +74,16 @@ func (c *watchConfig) validate() error {
 		return fmt.Errorf("poll interval must be positive, got %v", c.pollInterval)
 	}
 
+	// Validate maxReplayBytes
+	if c.maxReplayBytes < 0 {
+		return fmt.Errorf("maxReplayBytes must be non-negative, got %d", c.maxReplayBytes)
+	}
+
+	// Validate maxReplayLineBytes
+	if c.maxReplayLineBytes < 0 {
+		return fmt.Errorf("maxReplayLineBytes must be non-negative, got %d", c.maxReplayLineBytes)
+	}
+
 	return nil
 }
 
@@ -86,6 +101,17 @@ func WithLogDir(dir string) WatchOption {
 func WithPollInterval(interval time.Duration) WatchOption {
 	return func(c *watchConfig) {
 		c.pollInterval = interval
+	}
+}
+
+// WithWaitForLogs configures whether to wait for log files to appear.
+// When true, if the log directory exists but has no log files yet,
+// the watcher will poll at pollInterval until logs appear (useful for
+// starting the watcher before VRChat launches).
+// When false (default), ErrNoLogFiles is returned immediately if no logs exist.
+func WithWaitForLogs(wait bool) WatchOption {
+	return func(c *watchConfig) {
+		c.waitForLogs = wait
 	}
 }
 
@@ -112,7 +138,8 @@ func WithReplayFromStart() WatchOption {
 	}
 }
 
-// WithReplayLastN reads the last N lines before tailing.
+// WithReplayLastN reads the last N non-empty lines before tailing.
+// Empty lines are skipped and not counted towards N.
 func WithReplayLastN(n int) WatchOption {
 	return func(c *watchConfig) {
 		c.replay = ReplayConfig{Mode: ReplayLastN, LastN: n}
@@ -131,6 +158,24 @@ func WithReplaySinceTime(since time.Time) WatchOption {
 func WithMaxReplayLines(max int) WatchOption {
 	return func(c *watchConfig) {
 		c.maxReplayLines = max
+	}
+}
+
+// WithMaxReplayBytes sets the maximum total bytes to read during replay.
+// Default is 10MB (10485760 bytes). Set to 0 for unlimited (not recommended).
+// If the limit is exceeded during ReplayLastN, ErrReplayLimitExceeded is returned.
+func WithMaxReplayBytes(max int) WatchOption {
+	return func(c *watchConfig) {
+		c.maxReplayBytes = max
+	}
+}
+
+// WithMaxReplayLineBytes sets the maximum bytes per line during replay.
+// Default is 512KB (524288 bytes). Set to 0 for unlimited (not recommended).
+// If a single line exceeds this limit, ErrReplayLimitExceeded is returned.
+func WithMaxReplayLineBytes(max int) WatchOption {
+	return func(c *watchConfig) {
+		c.maxReplayLineBytes = max
 	}
 }
 

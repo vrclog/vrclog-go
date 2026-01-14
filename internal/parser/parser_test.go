@@ -210,8 +210,34 @@ func FuzzParse(f *testing.F) {
 	f.Add("2024.01.15 23:59:59 Log        -  [Network] Connected")
 
 	f.Fuzz(func(t *testing.T, line string) {
-		// Should not panic
-		_, _ = Parse(line)
+		// Parse should never panic, regardless of input
+		ev, err := Parse(line)
+
+		// Check invariants:
+		// 1. If event is returned, it should have a valid Type
+		if ev != nil {
+			if ev.Type == "" {
+				t.Error("Parse returned event with empty Type")
+			}
+			// Timestamp should not be zero value for valid events
+			if ev.Timestamp.IsZero() {
+				t.Error("Parse returned event with zero Timestamp")
+			}
+		}
+
+		// 2. If error is returned, event should be nil
+		if err != nil && ev != nil {
+			t.Error("Parse returned both event and error (should be mutually exclusive)")
+		}
+
+		// 3. Data map, if present, should not have empty keys
+		if ev != nil && ev.Data != nil {
+			for key := range ev.Data {
+				if key == "" {
+					t.Error("Event has Data with empty key")
+				}
+			}
+		}
 	})
 }
 

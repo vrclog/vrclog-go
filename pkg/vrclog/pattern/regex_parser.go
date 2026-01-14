@@ -32,6 +32,7 @@ type compiledPattern struct {
 	eventType  event.Type
 	regex      *regexp.Regexp
 	groupNames []string // Named capture group names (excluding empty string at index 0)
+	groupIndex []int    // Indices of named groups in matches array (parallel to groupNames)
 }
 
 // NewRegexParser creates a RegexParser from a PatternFile.
@@ -72,14 +73,17 @@ func NewRegexParser(pf *PatternFile) (*RegexParser, error) {
 			}
 		}
 
-		// Extract named capture group names.
+		// Extract named capture group names and their indices.
 		// Note: SubexpNames()[0] is always an empty string (the whole match),
 		// so we skip it when collecting named groups.
+		// We store both the names and indices to avoid calling SubexpNames() on every match.
 		allNames := re.SubexpNames()
 		groupNames := make([]string, 0, len(allNames)-1)
+		groupIndex := make([]int, 0, len(allNames)-1)
 		for j := 1; j < len(allNames); j++ {
 			if allNames[j] != "" {
 				groupNames = append(groupNames, allNames[j])
+				groupIndex = append(groupIndex, j)
 			}
 		}
 
@@ -88,6 +92,7 @@ func NewRegexParser(pf *PatternFile) (*RegexParser, error) {
 			eventType:  event.Type(p.EventType),
 			regex:      re,
 			groupNames: groupNames,
+			groupIndex: groupIndex,
 		})
 	}
 
@@ -115,12 +120,8 @@ func NewRegexParserFromFile(path string) (*RegexParser, error) {
 // It matches the line against all patterns and returns all matching events.
 // Events are returned in the order patterns were defined in the file.
 //
-// The context parameter is currently unused but is provided for future
-// enhancements (e.g., timeout support with regexp2 library).
+// Respects context cancellation for large pattern sets.
 func (p *RegexParser) ParseLine(ctx context.Context, line string) (vrclog.ParseResult, error) {
-	// Context parameter is for future use (e.g., timeout/cancellation).
-	// Current implementation using regexp does not support cancellation.
-
 	var allEvents []event.Event
 
 	// Extract timestamp from line (VRChat format: "2024.01.15 23:59:59 ...")
@@ -128,6 +129,15 @@ func (p *RegexParser) ParseLine(ctx context.Context, line string) (vrclog.ParseR
 
 	// Check all patterns (similar to ChainAll mode)
 	for _, cp := range p.patterns {
+		// Check for context cancellation when processing many patterns
+		if err := ctx.Err(); err != nil {
+			// Return partial results and cancellation error
+			if len(allEvents) > 0 {
+				return vrclog.ParseResult{Events: allEvents, Matched: true}, err
+			}
+			return vrclog.ParseResult{Matched: false}, err
+		}
+
 		matches := cp.regex.FindStringSubmatch(line)
 		if matches == nil {
 			continue
@@ -146,12 +156,12 @@ func (p *RegexParser) ParseLine(ctx context.Context, line string) (vrclog.ParseR
 		// Extract named capture groups into Data field
 		if len(cp.groupNames) > 0 {
 			data := make(map[string]string, len(cp.groupNames))
-			// Use SubexpNames() to maintain 1:1 correspondence with matches indices.
+			// Use pre-computed groupIndex to avoid calling SubexpNames() on every match.
 			// This correctly handles patterns with mixed unnamed and named capture groups.
-			allNames := cp.regex.SubexpNames()
-			for i := 1; i < len(allNames); i++ {
-				if allNames[i] != "" && i < len(matches) {
-					data[allNames[i]] = matches[i]
+			for i, name := range cp.groupNames {
+				idx := cp.groupIndex[i]
+				if idx < len(matches) {
+					data[name] = matches[idx]
 				}
 			}
 			ev.Data = data

@@ -7,6 +7,21 @@
 *.so
 *.dylib
 
+# Example binaries (built by `go build ./examples/...`)
+/custom-parser
+/parser-chain
+/watch-events
+/error-handling
+/event-filtering
+/graceful-shutdown
+/parse-files
+/parser-chain-modes
+/parser-decorator
+/parser-interface
+/parserfunc
+/replay-options
+/time-filter
+
 # Test binary
 *.test
 

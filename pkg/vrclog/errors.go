@@ -23,6 +23,10 @@ var (
 	// ErrAlreadyWatching is returned when Watch() is called on a Watcher
 	// that is already watching.
 	ErrAlreadyWatching = errors.New("watch already in progress")
+
+	// ErrReplayLimitExceeded is returned when replay exceeds memory limits
+	// configured via WithMaxReplayBytes or WithMaxReplayLineBytes.
+	ErrReplayLimitExceeded = errors.New("replay memory limit exceeded")
 )
 
 // ParseError represents an error that occurred while parsing a log line.
@@ -38,6 +42,19 @@ func (e *ParseError) Error() string {
 
 func (e *ParseError) Unwrap() error {
 	return e.Err
+}
+
+// LineTooLongError indicates a log line exceeded the maximum length limit.
+// The line is skipped by default, but if WithParseStopOnError(true) is set,
+// parsing stops and this error is returned.
+type LineTooLongError struct {
+	LineNumber int // Line number in file (1-indexed)
+	Length     int // Actual line length in bytes
+	MaxLength  int // Maximum allowed length
+}
+
+func (e *LineTooLongError) Error() string {
+	return fmt.Sprintf("line %d too long (%d bytes, max %d)", e.LineNumber, e.Length, e.MaxLength)
 }
 
 // WatchOp represents an operation that can fail during watching.

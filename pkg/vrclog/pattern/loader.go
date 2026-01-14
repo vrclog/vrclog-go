@@ -30,6 +30,10 @@ const (
 	// by preventing excessively complex patterns.
 	MaxPatternLength = 512
 
+	// MaxPatternCount is the maximum number of patterns allowed in a pattern file.
+	// This limit prevents CPU exhaustion attacks via files with thousands of patterns.
+	MaxPatternCount = 1000
+
 	// SupportedVersion is the currently supported pattern file format version.
 	SupportedVersion = 1
 )
@@ -141,6 +145,14 @@ func (pf *PatternFile) Validate() error {
 		return &ValidationError{
 			Field:   "patterns",
 			Message: "at least one pattern is required",
+		}
+	}
+
+	// Check for maximum pattern count
+	if len(pf.Patterns) > MaxPatternCount {
+		return &ValidationError{
+			Field:   "patterns",
+			Message: fmt.Sprintf("too many patterns (%d), maximum allowed is %d", len(pf.Patterns), MaxPatternCount),
 		}
 	}
 

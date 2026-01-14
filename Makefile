@@ -1,4 +1,4 @@
-.PHONY: all build test test-race test-cover lint fmt fmt-check vet tidy clean release-snapshot help
+.PHONY: all build test test-race test-cover bench fuzz lint fmt fmt-check vet tidy clean release-snapshot help
 
 # Default target
 all: lint test build
@@ -24,6 +24,17 @@ test-cover:
 	go test -cover ./...
 	go test -coverprofile=coverage.out ./...
 	go tool cover -html=coverage.out -o coverage.html
+
+# Run benchmarks
+bench:
+	go test -bench=. -benchmem ./...
+
+# Run fuzz tests (30 seconds each)
+fuzz:
+	@echo "Running fuzz tests..."
+	go test -fuzz=FuzzParse -fuzztime=30s ./internal/parser
+	go test -fuzz=FuzzRegexParser_ParseLine -fuzztime=30s ./pkg/vrclog/pattern
+	go test -fuzz=FuzzLoadBytes -fuzztime=30s ./pkg/vrclog/pattern
 
 # Run linter (requires golangci-lint)
 lint:
@@ -67,6 +78,8 @@ help:
 	@echo "  test            - Run tests"
 	@echo "  test-race       - Run tests with race detector"
 	@echo "  test-cover      - Run tests with coverage report"
+	@echo "  bench           - Run benchmarks"
+	@echo "  fuzz            - Run fuzz tests (30s each)"
 	@echo "  lint            - Run golangci-lint"
 	@echo "  fmt             - Format code"
 	@echo "  fmt-check       - Check formatting (for CI)"

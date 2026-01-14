@@ -19,7 +19,7 @@ type ParseResult struct {
 
 // Parser is the interface for log line parsers.
 // Implementations include DefaultParser (built-in VRChat events),
-// and future custom parsers (RegexParser, WasmParser).
+// RegexParser (custom pattern matching), and future parsers (e.g., WasmParser).
 type Parser interface {
 	// ParseLine parses a single log line.
 	// Returns ParseResult with Matched=true if the line was recognized.

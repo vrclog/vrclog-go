@@ -5,9 +5,11 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"strings"
 	"time"
 
 	"github.com/vrclog/vrclog-go/pkg/vrclog"
+	"github.com/vrclog/vrclog-go/pkg/vrclog/event"
 )
 
 // ExampleWatchWithOptions demonstrates basic usage of the WatchWithOptions convenience function.
@@ -190,4 +192,89 @@ func Example_errorsAs_WatchError() {
 	// Operation: tail
 	// Path: /path/to/log.txt
 	// Error: file not accessible
+}
+
+// ExampleParserChain demonstrates combining multiple parsers.
+func ExampleParserChain() {
+	ctx := context.Background()
+
+	// Create a custom parser using ParserFunc
+	customParser := vrclog.ParserFunc(func(ctx context.Context, line string) (vrclog.ParseResult, error) {
+		// Match lines containing "[Custom]"
+		if strings.Contains(line, "[Custom]") {
+			return vrclog.ParseResult{
+				Events:  []event.Event{{Type: "custom_event"}},
+				Matched: true,
+			}, nil
+		}
+		return vrclog.ParseResult{Matched: false}, nil
+	})
+
+	// Combine with default parser using ChainAll mode
+	chain := &vrclog.ParserChain{
+		Mode: vrclog.ChainAll,
+		Parsers: []vrclog.Parser{
+			vrclog.DefaultParser{},
+			customParser,
+		},
+	}
+
+	// Parse a VRChat log line
+	result, err := chain.ParseLine(ctx, "2024.01.15 23:59:59 Log - [Behaviour] OnPlayerJoined TestUser")
+	if err != nil {
+		log.Fatal(err)
+	}
+	fmt.Printf("Matched: %v, Events: %d\n", result.Matched, len(result.Events))
+	// Output: Matched: true, Events: 1
+}
+
+// ExampleParserFunc demonstrates creating a parser from a function.
+func ExampleParserFunc() {
+	ctx := context.Background()
+
+	// Create a simple parser that matches lines starting with "CUSTOM:"
+	parser := vrclog.ParserFunc(func(ctx context.Context, line string) (vrclog.ParseResult, error) {
+		if strings.HasPrefix(line, "CUSTOM:") {
+			return vrclog.ParseResult{
+				Events: []event.Event{{
+					Type: "custom",
+					Data: map[string]string{"content": strings.TrimPrefix(line, "CUSTOM:")},
+				}},
+				Matched: true,
+			}, nil
+		}
+		return vrclog.ParseResult{Matched: false}, nil
+	})
+
+	result, _ := parser.ParseLine(ctx, "CUSTOM:hello world")
+	if result.Matched {
+		fmt.Printf("Content: %s\n", result.Events[0].Data["content"])
+	}
+	// Output: Content: hello world
+}
+
+// Example_parseResult demonstrates the ParseResult structure.
+func Example_parseResult() {
+	// ParseResult has two fields:
+	// - Events: slice of parsed events
+	// - Matched: whether the parser recognized the input
+
+	// Result with events
+	result := vrclog.ParseResult{
+		Events:  []event.Event{{Type: "test"}},
+		Matched: true,
+	}
+
+	// Matched can be true even with empty Events
+	// (e.g., a filter that matches but outputs nothing)
+	filterResult := vrclog.ParseResult{
+		Events:  nil,
+		Matched: true,
+	}
+
+	fmt.Printf("result.Matched=%v, events=%d\n", result.Matched, len(result.Events))
+	fmt.Printf("filterResult.Matched=%v, events=%d\n", filterResult.Matched, len(filterResult.Events))
+	// Output:
+	// result.Matched=true, events=1
+	// filterResult.Matched=true, events=0
 }
