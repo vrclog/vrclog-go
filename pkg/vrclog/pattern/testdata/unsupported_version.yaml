@@ -1,5 +1,0 @@
-version: 2
-patterns:
-  - id: test
-    event_type: test
-    regex: 'test'

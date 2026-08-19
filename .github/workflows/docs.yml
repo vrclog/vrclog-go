@@ -5,14 +5,18 @@ on:
     branches: [main]
     paths:
       - '**.md'
-      - 'pkg/**/*.go'
+      - '*.go'
+      - 'cmd/**/*.go'
+      - 'internal/**/*.go'
       - 'examples/**/*.go'
       - '.markdown-link-check.json'
   pull_request:
     branches: [main]
     paths:
       - '**.md'
-      - 'pkg/**/*.go'
+      - '*.go'
+      - 'cmd/**/*.go'
+      - 'internal/**/*.go'
       - 'examples/**/*.go'
       - '.markdown-link-check.json'
 
@@ -33,13 +37,10 @@ jobs:
       - name: Verify examples compile
         run: go build ./examples/...
 
-      - name: Run example tests
-        run: go test -v ./pkg/vrclog/ -run Example
-
       - name: Check Markdown links
         uses: gaurav-nelson/github-action-markdown-link-check@v1
         with:
           use-quiet-mode: 'yes'
           config-file: '.markdown-link-check.json'
-          folder-path: 'docs, examples'
-          file-path: './README.md, ./README.ja.md, ./CHANGELOG.md, ./CLAUDE.md'
+          folder-path: 'examples'
+          file-path: './README.md, ./CHANGELOG.md, ./CLAUDE.md'

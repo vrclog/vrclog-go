@@ -30,6 +30,12 @@
 coverage.out
 coverage.html
 
+# Test Wasm modules (built by TinyGo)
+internal/wasm/testdata/*.wasm
+
+# Example plugin binaries
+examples/plugins/**/*.wasm
+
 # Dependency directories
 /vendor/
 
@@ -56,3 +62,6 @@ __debug_bin*
 
 # Development plans (internal)
 /plan/
+
+# Real VRChat output logs may contain PII, UUIDs, and signed URLs
+/output_log_*.txt

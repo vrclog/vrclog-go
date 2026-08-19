@@ -1,0 +1,22 @@
+2026.01.15 12:00:00 Debug      -  [Behaviour] Entering Room: Lake Side House
+2026.01.15 12:00:00 Debug      -  [Behaviour] Joining wrld_00000000-0000-0000-0000-000000000001:28010~private(usr_00000000-0000-0000-0000-000000000001)~region(jp)
+2026.01.15 12:00:05 Debug      -  [Behaviour] OnPlayerJoined TestUser (usr_00000000-0000-0000-0000-000000000001)
+2026.01.15 12:00:06 Debug      -  [Behaviour] OnPlayerJoined 星野 アクア (usr_00000000-0000-0000-0000-000000000002)
+2026.01.15 12:00:07 Debug      -  [Behaviour] OnPlayerJoined SomePlayer
+2026.01.15 12:00:10 Debug      -  [AVProVideo] Initialising AVPro Video v3.3.6 (native plugin v3.2.6f1-ultra) on NVIDIA GeForce RTX 5080/Direct3D 11.0 [level 11.1] (MT False) on WindowsPlayer
+2026.01.15 12:00:10 Error      -  [AVProVideo] No MediaReference specified
+2026.01.15 12:00:10 Error      -  [AVProVideo] No file path specified
+2026.01.15 12:00:15 Debug      -  [Video Playback] Attempting to resolve URL 'https://youtu.be/FAKEVIDEOID1'
+2026.01.15 12:00:17 Warning    -  [Video Playback] ERROR: [generic] uc?export=view&id=FAKE_ID: Unable to download webpage: HTTP Error 404: Not Found (caused by <HTTPError 404: Not Found>)
+2026.01.15 12:00:17 Debug      -  [Video Playback] URL 'https://youtu.be/FAKEVIDEOID1' resolved to 'https://rr3---sn-example.example.invalid/videoplayback?expire=1234567890&ei=FAKETOKEN&itag=18&source=youtube'
+2026.01.15 12:00:17 Debug      -  [AVProVideo] Opening https://rr3---sn-example.example.invalid/videoplayback?expire=1234567890&ei=FAKETOKEN&itag=18&source=youtube (offset 0) with API MediaFoundation
+2026.01.15 12:00:18 Error      -  [AVProVideo] Error: Loading failed.  File not found, codec not supported, video resolution too high or insufficient system resources.
+2026.01.15 12:00:20 Debug      -  [AVProVideo] Opening https://www.youtube.com/watch?v=FAKEVIDEOID2
+2026.01.15 12:00:25 Debug      -  [Behaviour] OnPlayerLeft TestUser
+2026.01.15 12:00:26 Debug      -  [Behaviour] OnPlayerLeft 星野 アクア (usr_00000000-0000-0000-0000-000000000002)
+2026.01.15 12:00:30 Debug      -  [Behaviour] Entering Room: Cozy Cafe
+2026.01.15 12:00:30 Debug      -  [Behaviour] Joining wrld_00000000-0000-0000-0000-000000000002:58591~hidden(usr_00000000-0000-0000-0000-000000000003)~region(jp)
+2026.01.15 12:00:35 Debug      -  [Behaviour] Joining wrld_00000000-0000-0000-0000-000000000003:2433ee0749~region(jp)
+2026.01.15 12:00:40 Debug      -  [Behaviour] Joining wrld_00000000-0000-0000-0000-000000000004:61081~group(grp_00000000-0000-0000-0000-000000000001)~groupAccessType(public)~region(jp)
+2026.01.15 12:00:50 Debug      -  [AVProVideo] Using playback path: MF-MediaEngine-Hardware (640x360@24.00)
+2026.01.15 12:01:00 Debug      -  [AVProVideo] Shutdown

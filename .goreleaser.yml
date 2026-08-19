@@ -44,7 +44,6 @@ archives:
     files:
       - LICENSE
       - README.md
-      - README.ja.md
       - CHANGELOG.md
 
 checksum:

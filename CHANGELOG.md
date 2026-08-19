@@ -7,57 +7,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed (Breaking)
+
+Complete architecture replacement. No backward compatibility with the 0.1.x API.
+
+- **New pipeline**: `output_log_*.txt -> Read/Follow -> Record -> Engine (Adapters) -> Event -> Observation`
+- **Flat package layout**: single `package vrclog` at module root (was `pkg/vrclog/`)
+- **Zero external dependencies**: standard library only (removed nxadm/tail, cobra, testify, yaml.v3, wazero)
+- **Sealed canonical Events**: 7 concrete types (`PlayerJoined`, `PlayerLeft`, `WorldEnteringObserved`, `WorldJoiningObserved`, `ResourceURLObserved`, `ResourceResolved`, `MediaErrorObserved`) with sealed interface
+- **Deterministic IDs**: `SourceID`, `RecordID`, `ObservationID` all derived from SHA-256 hashes
+- **Cursor-based positioning**: file offset and line number, not timestamps
+- **iter.Seq2 iterators**: `ReadFile` and `Follow` return `iter.Seq2[Record, error]`
+- **New CLI**: `vrclog read|follow|version` (plain `flag` package, no Cobra)
+
+### Removed
+
+- `Parser`, `ParserFunc`, `ParserChain`, `DefaultParser`
+- YAML pattern matching (`pattern/` package)
+- WebAssembly plugin system (`internal/wasm/`)
+- Channel-based `Watcher` / `Watch()` / `WatchWithOptions()`
+- Replay modes (`ReplayConfig`, `ReplayLastN`, etc.)
+- Event type filtering (`--include-types`, `--exclude-types`)
+- Time range filtering (`--since`, `--until`)
+- `ParseFile()`, `ParseDir()`
+- `Event.Data map[string]string` (replaced by typed Event structs)
+- Cobra CLI framework
+- All external dependencies
+
 ### Added
 
-- CLI `parse` command for batch/offline log parsing
-- `--include-types`, `--exclude-types` flags for both `tail` and `parse` commands
-- Time range filtering with `--since` and `--until` flags in `parse` command
-- `ParseFile()`, `ParseDir()` library functions for offline parsing
-- **Parser interface** for pluggable log parsing (`pkg/vrclog/parser.go`)
-  - `Parser` interface with `ParseLine(ctx, line) (ParseResult, error)`
-  - `ParserFunc` adapter for functional parsers
-  - `ParserChain` for combining parsers with modes: `ChainAll`, `ChainFirst`, `ChainContinueOnError`
-  - `DefaultParser` type wrapping built-in VRChat event parsing
-  - `WithParser()`, `WithParsers()` watch/parse options
-- **Custom pattern matching** via YAML files (`pkg/vrclog/pattern/`)
-  - `PatternFile` and `Pattern` types for YAML schema
-  - `RegexParser` implementing `Parser` interface
-  - Named capture groups `(?P<name>...)` populate `Event.Data` map
-  - YAML pattern file format with `version`, `id`, `event_type`, `regex` fields
-  - `Load()`, `LoadBytes()` for pattern file loading
-  - `NewRegexParser()`, `NewRegexParserFromFile()` constructors
-  - ReDoS protection: 512 byte max pattern length, 1MB max file size
-- `Event.Data` field for custom key-value data from parsers
-- **Runnable examples** demonstrating library features (`examples/`)
-  - `custom-parser/` - Custom event extraction using `RegexParser` with YAML patterns
-  - `parser-chain/` - Combining `DefaultParser` with `RegexParser` using `ParserChain`
-  - `watch-events/` - Real-time log monitoring with `WatchWithOptions()`
-  - `parserfunc/` - Creating custom parsers with `ParserFunc` adapter
-  - `parse-files/` - Batch processing with `ParseFile()` and `ParseDir()` iterators
-  - `time-filter/` - Time-based filtering with `WithParseSince()` and `WithParseUntil()`
-  - `replay-options/` - Replay configuration modes (`ReplayLastN`, `ReplayFromStart`, etc.)
-  - `parser-interface/` - Implementing `Parser` interface with state management
-  - `error-handling/` - Comprehensive error handling with `errors.Is()` and `errors.As()`
-  - `event-filtering/` - Event type filtering with `WithExcludeTypes()` and `WithFilter()`
-  - `parser-chain-modes/` - `ParserChain` modes: `ChainAll`, `ChainFirst`, `ChainContinueOnError`
-  - `parser-decorator/` - Decorator pattern for extending parsers (`MetricsParser`, `TransformingParser`)
-  - `graceful-shutdown/` - Watcher lifecycle management with `Watcher.Close()` and `sync.WaitGroup`
-
-### Changed
-
-- `tail --types` replaced with `--include-types` (breaking change)
-- Event type filtering is now case-insensitive and trims whitespace
-
-### Security
-
-- Pattern file FIFO/device DoS protection (rejects non-regular files)
-- Pattern file size limits (1MB max, prevents OOM)
-- Regex pattern length limits (512 bytes, ReDoS mitigation)
-- Race condition fix in `FindLatestLogFile()` (nil-deref prevention)
-- Symlink resolution failure handling (no fallback to prevent attacks)
-- `ChainContinueOnError` now preserves events from partially successful parsers
-- `NewRegexParser()` enforces validation even when `PatternFile` is constructed programmatically
-- Fuzz tests for robustness (`FuzzRegexParser_ParseLine`, `FuzzLoadBytes`) to ensure panic-free operation with arbitrary input
+- `ReadFile(ctx, ReadFileConfig) iter.Seq2[Record, error]` for batch file reading
+- `Follow(ctx, FollowConfig) iter.Seq2[Record, error]` for live log tailing with rotation handling
+- `Engine` with `Process(Record) Result` for adapter-based event extraction
+- `Adapter` interface (`ID() AdapterID`, `Decode(Record) ([]Emission, error)`)
+- `NewVRChatAdapter()` built-in adapter for VRChat client log lines
+- `Observation` with full provenance (adapter ID, rule ID, record reference)
+- `EncodeObservationJSON` / `DecodeObservationJSON` for JSON serialization
+- `EncodeEvent` / `DecodeEvent` for polymorphic event codec
+- `Diagnostic` type for non-fatal processing issues
+- `DefaultLogDirectory()` for platform-specific VRChat log path detection
+- `examples/` directory with minimal usage examples
 
 ## [0.1.0] - Initial Release
 
@@ -65,18 +54,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Initial implementation of VRChat log parser and watcher
 - `vrclog.Watch()` function for real-time log monitoring
-- `vrclog.NewWatcher()` for advanced watcher configuration
 - `vrclog.ParseLine()` for parsing individual log lines
 - Event types: `world_join`, `player_join`, `player_left`
-- Replay functionality with `ReplayConfig` options
 - CLI tool with `tail` command
 - JSON Lines and pretty output formats
-- Event type filtering
-- Log directory auto-detection
-- Log file rotation handling
-
-### Documentation
-
-- README.md with usage examples
-- README.ja.md (Japanese translation)
-- Package documentation in doc.go

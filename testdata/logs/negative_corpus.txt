@@ -1,0 +1,15 @@
+2026.01.15 12:00:00 Debug      -  [<color=#1F84A9>A</color><color=#A3A3A3>T</color> <color=#c0c0c0>INFO</color>    	<color=#00ff00>TVManager (Simple (ProTV))</color>] [AVProHQ] loading URL by user 'TestUser': https://youtu.be/FAKEVIDEOID1
+2026.01.15 12:00:01 Error      -  [AVProVideo] No MediaReference specified
+2026.01.15 12:00:02 Error      -  [AVProVideo] No file path specified
+2026.01.15 12:00:03 Debug      -  [AVProVideo] Using playback path: MF-MediaEngine-Hardware (640x360@24.00)
+2026.01.15 12:00:04 Debug      -  [AVProVideo] Shutdown
+2026.01.15 12:00:05 Debug      -  [AVProVideo] Initialising AVPro Video v3.3.6 (native plugin v3.2.6f1-ultra) on NVIDIA GeForce RTX 5080/Direct3D 11.0 [level 11.1] (MT False) on WindowsPlayer
+2026.01.15 12:00:06 Debug      -  [AVProMovieCapture] Init version: 5.0.5 (plugin v5.0.0f1-ultra) with GPU NVIDIA GeForce RTX 5080 Direct3D 11.0 [level 11.1] OS: Windows 11  (10.0.26200) 64bit
+2026.01.15 12:00:07 Debug      -  [Behaviour] OnPlayerJoined: TestUser logged in
+2026.01.15 12:00:08 Debug      -  [Behaviour] OnPlayerLeftRoom
+2026.01.15 12:00:09 Debug      -  [Behaviour] Joining or Creating Room: Some World
+2026.01.15 12:00:10 Debug      -  [Behaviour] Joining friend SomeFriend in instance
+2026.01.15 12:00:11 Debug      -  [Video Playback] Attempting to resolve URL 'ftp://example.invalid/video.mp4'
+2026.01.15 12:00:12 Debug      -  [YamaPlayer] Loading URL: https://youtu.be/FAKEVIDEOID1
+2026.01.15 12:00:13 Debug      -  [iwaSync3] Playback started: https://youtu.be/FAKEVIDEOID1
+2026.01.15 12:00:14 Log        -  C:\Program Files\VRChat\VRChat.exe --url=https://example.invalid/launch
