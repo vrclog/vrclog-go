@@ -85,7 +85,15 @@ func (e *Engine) Process(record Record) Result {
 			continue
 		}
 
-		for i, em := range emissions {
+		ruleCount := make(map[RuleID]int, len(emissions))
+		for _, em := range emissions {
+			if em.Rule != "" {
+				ruleCount[em.Rule]++
+			}
+		}
+		diagnosedDuplicate := make(map[RuleID]bool, len(ruleCount))
+
+		for _, em := range emissions {
 			if em.Rule == "" {
 				result.Diagnostics = append(result.Diagnostics, Diagnostic{
 					Code:      DiagnosticInvalidRuleID,
@@ -93,6 +101,20 @@ func (e *Engine) Process(record Record) Result {
 					AdapterID: adapter.ID(),
 					Record:    ref,
 				})
+				continue
+			}
+
+			if ruleCount[em.Rule] > 1 {
+				if !diagnosedDuplicate[em.Rule] {
+					diagnosedDuplicate[em.Rule] = true
+					result.Diagnostics = append(result.Diagnostics, Diagnostic{
+						Code:      DiagnosticDuplicateRuleID,
+						Message:   "duplicate rule ID in single decode result",
+						AdapterID: adapter.ID(),
+						RuleID:    em.Rule,
+						Record:    ref,
+					})
+				}
 				continue
 			}
 
@@ -130,7 +152,7 @@ func (e *Engine) Process(record Record) Result {
 			}
 
 			obs := Observation{
-				ID:        generateObservationID(record.ID, adapter.ID(), em.Rule, i),
+				ID:        generateObservationID(record.ID, adapter.ID(), em.Rule),
 				Time:      record.Time,
 				AdapterID: adapter.ID(),
 				RuleID:    em.Rule,

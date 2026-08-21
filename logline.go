@@ -26,7 +26,12 @@ func newLineReader(r io.Reader, startOffset int64, startLine uint64) *lineReader
 	}
 }
 
-func (lr *lineReader) next() (raw []byte, rawHash [32]byte, offset int64, nextOffset int64, line uint64, issue *RecordIssue, err error) {
+// next reads the next physical line. terminated reports whether the
+// returned data ended with a newline. When terminated is false (EOF
+// reached with unterminated trailing data), lr.offset and lr.line are
+// NOT advanced — the next call to next() (against a fresh reader seeked
+// to the same position) will re-read the same fragment from its start.
+func (lr *lineReader) next() (raw []byte, rawHash [32]byte, offset int64, nextOffset int64, line uint64, terminated bool, issue *RecordIssue, err error) {
 	lineStart := lr.offset
 	lineNum := lr.line
 
@@ -74,6 +79,7 @@ func (lr *lineReader) next() (raw []byte, rawHash [32]byte, offset int64, nextOf
 			offset = lineStart
 			nextOffset = lr.offset
 			line = lineNum
+			terminated = true
 
 			if oversized {
 				issue = &RecordIssue{
@@ -95,17 +101,17 @@ func (lr *lineReader) next() (raw []byte, rawHash [32]byte, offset int64, nextOf
 				return
 			}
 
-			// Final line without terminator
-			lr.offset = lineStart + totalBytes
-			lr.line = lineNum + 1
-
-			// No terminator to strip, but handle CRLF edge: there's none here
+			// Final line without terminator. lr.offset/lr.line are
+			// intentionally NOT advanced: callers that must not commit
+			// unterminated data (active Follow) rely on this to safely
+			// re-read the same fragment from a fresh reader later.
 			raw = accumulated
 
 			copy(rawHash[:], h.Sum(nil))
 			offset = lineStart
-			nextOffset = lr.offset
+			nextOffset = lineStart + totalBytes
 			line = lineNum
+			terminated = false
 
 			if oversized {
 				issue = &RecordIssue{

@@ -7,7 +7,6 @@ import (
 	"io"
 	"iter"
 	"path/filepath"
-	"strings"
 
 	"github.com/vrclog/vrclog-go/internal/logfile"
 )
@@ -78,7 +77,10 @@ func ReadFile(ctx context.Context, cfg ReadFileConfig) iter.Seq2[Record, error] 
 				return
 			}
 
-			rawBytes, rawHash, offset, nextOffset, lineNum, issue, readErr := lr.next()
+			// ReadFile has finite semantics: an unterminated final line
+			// (terminated == false) is still emitted, matching a settled
+			// read of the whole file.
+			rawBytes, rawHash, offset, nextOffset, lineNum, _, issue, readErr := lr.next()
 			if readErr == io.EOF {
 				return
 			}
@@ -87,27 +89,7 @@ func ReadFile(ctx context.Context, cfg ReadFileConfig) iter.Seq2[Record, error] 
 				return
 			}
 
-			rawStr := strings.ToValidUTF8(string(rawBytes), "�")
-
-			t, level, message, ok := decodeHeader(rawStr, nil)
-			if !ok {
-				message = rawStr
-				level = LevelUnknown
-			}
-
-			rec := Record{
-				ID:         computeRecordID(srcID, offset, rawHash),
-				Time:       t,
-				Level:      level,
-				Message:    message,
-				Raw:        rawStr,
-				SourceID:   srcID,
-				Path:       path,
-				Offset:     offset,
-				NextOffset: nextOffset,
-				Line:       lineNum,
-				Issue:      issue,
-			}
+			rec := buildRecord(rawBytes, rawHash, offset, nextOffset, lineNum, issue, srcID, path)
 
 			if !yield(rec, nil) {
 				return

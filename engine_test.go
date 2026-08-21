@@ -253,7 +253,7 @@ func TestProcessObservationIDsDeterministic(t *testing.T) {
 	}
 }
 
-func TestProcessEmissionIndexDifferentiatesIDs(t *testing.T) {
+func TestProcess_DuplicateRuleIDRejectsAll(t *testing.T) {
 	a := &mockAdapter{id: "multi", decode: func(Record) ([]Emission, error) {
 		return []Emission{
 			{Rule: "r1", Event: PlayerJoined{Player: Player{DisplayName: "A"}}},
@@ -263,11 +263,83 @@ func TestProcessEmissionIndexDifferentiatesIDs(t *testing.T) {
 	eng, _ := NewEngine(a)
 	result := eng.Process(validRecord())
 
-	if len(result.Observations) != 2 {
-		t.Fatalf("expected 2 observations, got %d", len(result.Observations))
+	if len(result.Observations) != 0 {
+		t.Errorf("duplicate rule ID should produce no observations, got %d", len(result.Observations))
 	}
-	if result.Observations[0].ID == result.Observations[1].ID {
-		t.Errorf("different emission indices should produce different IDs: both %q", result.Observations[0].ID)
+	if len(result.Diagnostics) != 1 {
+		t.Fatalf("expected 1 diagnostic, got %d", len(result.Diagnostics))
+	}
+	if result.Diagnostics[0].Code != DiagnosticDuplicateRuleID {
+		t.Errorf("code = %q, want %q", result.Diagnostics[0].Code, DiagnosticDuplicateRuleID)
+	}
+	if result.Diagnostics[0].RuleID != "r1" {
+		t.Errorf("RuleID = %q, want %q", result.Diagnostics[0].RuleID, "r1")
+	}
+}
+
+func TestProcess_DuplicateRuleIDPreservesOthers(t *testing.T) {
+	a := &mockAdapter{id: "multi", decode: func(Record) ([]Emission, error) {
+		return []Emission{
+			{Rule: "r1", Event: PlayerJoined{Player: Player{DisplayName: "A"}}},
+			{Rule: "r2", Event: PlayerJoined{Player: Player{DisplayName: "B"}}},
+			{Rule: "r1", Event: PlayerJoined{Player: Player{DisplayName: "C"}}},
+		}, nil
+	}}
+	eng, _ := NewEngine(a)
+	result := eng.Process(validRecord())
+
+	if len(result.Observations) != 1 {
+		t.Fatalf("expected 1 observation, got %d", len(result.Observations))
+	}
+	if result.Observations[0].RuleID != "r2" {
+		t.Errorf("RuleID = %q, want %q", result.Observations[0].RuleID, "r2")
+	}
+	if len(result.Diagnostics) != 1 || result.Diagnostics[0].Code != DiagnosticDuplicateRuleID {
+		t.Errorf("expected 1 DiagnosticDuplicateRuleID, got %+v", result.Diagnostics)
+	}
+}
+
+func TestProcess_MixedEmptyDuplicateValid(t *testing.T) {
+	a := &mockAdapter{id: "mixed", decode: func(Record) ([]Emission, error) {
+		return []Emission{
+			{Rule: "", Event: PlayerJoined{Player: Player{DisplayName: "X"}}},
+			{Rule: "r1", Event: nil},
+			{Rule: "r2", Event: PlayerJoined{Player: Player{DisplayName: "Y"}}},
+			{Rule: "r1", Event: PlayerJoined{Player: Player{DisplayName: "Z"}}},
+		}, nil
+	}}
+	eng, _ := NewEngine(a)
+	result := eng.Process(validRecord())
+
+	if len(result.Observations) != 1 {
+		t.Fatalf("expected 1 observation, got %d", len(result.Observations))
+	}
+	if result.Observations[0].RuleID != "r2" {
+		t.Errorf("RuleID = %q, want %q", result.Observations[0].RuleID, "r2")
+	}
+
+	var hasInvalidRule, hasDuplicateRule bool
+	for _, d := range result.Diagnostics {
+		switch d.Code {
+		case DiagnosticInvalidRuleID:
+			hasInvalidRule = true
+		case DiagnosticDuplicateRuleID:
+			hasDuplicateRule = true
+			if d.RuleID != "r1" {
+				t.Errorf("duplicate diagnostic RuleID = %q, want %q", d.RuleID, "r1")
+			}
+		case DiagnosticInvalidEvent:
+			t.Errorf("duplicate RuleID emission should not also produce DiagnosticInvalidEvent")
+		}
+	}
+	if !hasInvalidRule {
+		t.Error("expected DiagnosticInvalidRuleID for empty rule")
+	}
+	if !hasDuplicateRule {
+		t.Error("expected DiagnosticDuplicateRuleID for r1")
+	}
+	if len(result.Diagnostics) != 2 {
+		t.Errorf("expected exactly 2 diagnostics, got %d: %+v", len(result.Diagnostics), result.Diagnostics)
 	}
 }
 

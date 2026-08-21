@@ -1,6 +1,9 @@
 package vrclog
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestPlayerJoinedValidate(t *testing.T) {
 	valid := PlayerJoined{Player: Player{DisplayName: "Alice"}}
@@ -141,5 +144,183 @@ func TestMediaErrorObservedValidate(t *testing.T) {
 	noCodeNoMsg := MediaErrorObserved{Stage: MediaStageUnknown}
 	if err := noCodeNoMsg.validate(); err == nil {
 		t.Error("MediaErrorObserved with no Code and no Message should fail validation")
+	}
+}
+
+// --- Phase 6: URL, MediaTarget, and nested validation ---
+
+func TestValidateRemoteResource_URLTooLong(t *testing.T) {
+	longURL := "https://example.com/" + strings.Repeat("a", maxURLBytes)
+	r := RemoteResource{URL: longURL, Kind: ResourceKindVideo, Role: ResourceRoleSource}
+	if err := validateRemoteResource(r); err == nil {
+		t.Error("expected error for oversized URL")
+	}
+}
+
+func TestValidateRemoteResource_ControlChars(t *testing.T) {
+	r := RemoteResource{URL: "https://example.com/\x01video", Kind: ResourceKindVideo, Role: ResourceRoleSource}
+	if err := validateRemoteResource(r); err == nil {
+		t.Error("expected error for URL containing control characters")
+	}
+}
+
+func TestValidateRemoteResource_RelativeURL(t *testing.T) {
+	r := RemoteResource{URL: "/relative/path", Kind: ResourceKindVideo, Role: ResourceRoleSource}
+	if err := validateRemoteResource(r); err == nil {
+		t.Error("expected error for relative URL")
+	}
+}
+
+func TestValidateRemoteResource_UserinfoRejected(t *testing.T) {
+	r := RemoteResource{URL: "https://user:pass@example.com/video", Kind: ResourceKindVideo, Role: ResourceRoleSource}
+	if err := validateRemoteResource(r); err == nil {
+		t.Error("expected error for URL with userinfo")
+	}
+}
+
+func TestValidateRemoteResource_NonHTTPScheme(t *testing.T) {
+	r := RemoteResource{URL: "ftp://example.com/video", Kind: ResourceKindVideo, Role: ResourceRoleSource}
+	if err := validateRemoteResource(r); err == nil {
+		t.Error("expected error for non-http(s) scheme")
+	}
+}
+
+func TestValidateRemoteResource_EmptyHost(t *testing.T) {
+	r := RemoteResource{URL: "https:///path", Kind: ResourceKindVideo, Role: ResourceRoleSource}
+	if err := validateRemoteResource(r); err == nil {
+		t.Error("expected error for empty host")
+	}
+}
+
+func TestValidateRemoteResource_BidiChars(t *testing.T) {
+	r := RemoteResource{URL: "https://example.com/\u202evideo", Kind: ResourceKindVideo, Role: ResourceRoleSource}
+	if err := validateRemoteResource(r); err == nil {
+		t.Error("expected error for URL containing bidi formatting characters")
+	}
+}
+
+func TestValidateRemoteResource_PercentEncodedControlInQuery(t *testing.T) {
+	r := RemoteResource{URL: "https://example.com/video?sig=abc%0d%0aInjected", Kind: ResourceKindVideo, Role: ResourceRoleSource}
+	if err := validateRemoteResource(r); err == nil {
+		t.Error("expected error for percent-encoded control characters in query")
+	}
+}
+
+func TestValidateRemoteResource_PercentEncodedControlInPath(t *testing.T) {
+	r := RemoteResource{URL: "https://example.com/%0d%0avideo", Kind: ResourceKindVideo, Role: ResourceRoleSource}
+	if err := validateRemoteResource(r); err == nil {
+		t.Error("expected error for percent-encoded control characters in path")
+	}
+}
+
+func TestValidateRemoteResource_PercentEncodedControlInFragment(t *testing.T) {
+	r := RemoteResource{URL: "https://example.com/video#%0d%0a", Kind: ResourceKindVideo, Role: ResourceRoleSource}
+	if err := validateRemoteResource(r); err == nil {
+		t.Error("expected error for percent-encoded control characters in fragment")
+	}
+}
+
+func TestValidateMediaTarget_EmptyComponent(t *testing.T) {
+	target := &MediaTarget{Component: "", Backend: MediaBackendUnknown}
+	if err := validateMediaTarget(target); err == nil {
+		t.Error("expected error for empty Component")
+	}
+}
+
+func TestValidateMediaTarget_ComponentTooLong(t *testing.T) {
+	target := &MediaTarget{Component: strings.Repeat("a", maxMediaTargetComponentBytes+1), Backend: MediaBackendUnknown}
+	if err := validateMediaTarget(target); err == nil {
+		t.Error("expected error for oversized Component")
+	}
+}
+
+func TestValidateMediaTarget_EmptyBackend(t *testing.T) {
+	target := &MediaTarget{Component: "vrchat", Backend: ""}
+	if err := validateMediaTarget(target); err == nil {
+		t.Error("expected error for empty Backend")
+	}
+}
+
+func TestValidateMediaTarget_InvalidBackend(t *testing.T) {
+	target := &MediaTarget{Component: "vrchat", Backend: "not_a_real_backend"}
+	if err := validateMediaTarget(target); err == nil {
+		t.Error("expected error for undefined Backend")
+	}
+}
+
+func TestValidateMediaTarget_KeyTooLong(t *testing.T) {
+	target := &MediaTarget{Component: "vrchat", Backend: MediaBackendUnknown, Key: strings.Repeat("a", maxMediaTargetKeyBytes+1)}
+	if err := validateMediaTarget(target); err == nil {
+		t.Error("expected error for oversized Key")
+	}
+}
+
+func TestValidateMediaTarget_ControlChars(t *testing.T) {
+	target := &MediaTarget{Component: "vrchat\x01", Backend: MediaBackendUnknown}
+	if err := validateMediaTarget(target); err == nil {
+		t.Error("expected error for Component containing control characters")
+	}
+}
+
+func TestValidateMediaTarget_NilIsValid(t *testing.T) {
+	if err := validateMediaTarget(nil); err != nil {
+		t.Errorf("nil MediaTarget should be valid, got %v", err)
+	}
+}
+
+func TestResourceURLObserved_NestedTargetValidation(t *testing.T) {
+	ev := ResourceURLObserved{
+		Resource: RemoteResource{URL: "https://example.com", Kind: ResourceKindVideo, Role: ResourceRoleSource},
+		Target:   &MediaTarget{Component: "", Backend: MediaBackendUnknown},
+	}
+	if err := ev.validate(); err == nil {
+		t.Error("expected error for invalid nested Target")
+	}
+}
+
+func TestResourceResolved_NestedTargetValidation(t *testing.T) {
+	ev := ResourceResolved{
+		Input:  RemoteResource{URL: "https://in.example.com", Kind: ResourceKindVideo, Role: ResourceRoleResolverInput},
+		Output: RemoteResource{URL: "https://out.example.com", Kind: ResourceKindVideo, Role: ResourceRoleResolved},
+		Target: &MediaTarget{Component: "vrchat", Backend: "invalid"},
+	}
+	if err := ev.validate(); err == nil {
+		t.Error("expected error for invalid nested Target")
+	}
+}
+
+func TestMediaErrorObserved_NestedResourceValidation(t *testing.T) {
+	badResource := RemoteResource{URL: "", Kind: ResourceKindVideo, Role: ResourceRoleSource}
+	ev := MediaErrorObserved{Stage: MediaStageLoad, Code: "E1", Resource: &badResource}
+	if err := ev.validate(); err == nil {
+		t.Error("expected error for invalid nested Resource")
+	}
+}
+
+func TestMediaErrorObserved_NestedTargetValidation(t *testing.T) {
+	ev := MediaErrorObserved{Stage: MediaStageLoad, Code: "E1", Target: &MediaTarget{Component: "vrchat", Backend: ""}}
+	if err := ev.validate(); err == nil {
+		t.Error("expected error for invalid nested Target")
+	}
+}
+
+func TestMediaErrorObserved_CodeTooLong(t *testing.T) {
+	ev := MediaErrorObserved{Stage: MediaStageLoad, Code: strings.Repeat("a", maxMediaErrorCodeBytes+1)}
+	if err := ev.validate(); err == nil {
+		t.Error("expected error for oversized Code")
+	}
+}
+
+func TestMediaErrorObserved_MessageTooLong(t *testing.T) {
+	ev := MediaErrorObserved{Stage: MediaStageLoad, Message: strings.Repeat("a", maxMediaErrorMessageBytes+1)}
+	if err := ev.validate(); err == nil {
+		t.Error("expected error for oversized Message")
+	}
+}
+
+func TestMediaErrorObserved_MessageControlCharsRejected(t *testing.T) {
+	ev := MediaErrorObserved{Stage: MediaStageLoad, Message: "line one\tline two"}
+	if err := ev.validate(); err == nil {
+		t.Error("expected error for Message containing a tab (control character)")
 	}
 }

@@ -124,34 +124,96 @@ func TestObservationJSONRoundTrip(t *testing.T) {
 }
 
 func TestGenerateObservationIDDeterministic(t *testing.T) {
-	id1 := generateObservationID("rec1", "adapter1", "rule1", 0)
-	id2 := generateObservationID("rec1", "adapter1", "rule1", 0)
+	id1 := generateObservationID("rec1", "adapter1", "rule1")
+	id2 := generateObservationID("rec1", "adapter1", "rule1")
 	if id1 != id2 {
 		t.Errorf("same inputs should produce same ID: %q vs %q", id1, id2)
 	}
 }
 
-func TestGenerateObservationIDDifferentIndex(t *testing.T) {
-	id0 := generateObservationID("rec1", "adapter1", "rule1", 0)
-	id1 := generateObservationID("rec1", "adapter1", "rule1", 1)
-	if id0 == id1 {
-		t.Errorf("different emission_index should produce different ID: both %q", id0)
-	}
-}
-
 func TestGenerateObservationIDDifferentAdapter(t *testing.T) {
-	id1 := generateObservationID("rec1", "adapter1", "rule1", 0)
-	id2 := generateObservationID("rec1", "adapter2", "rule1", 0)
+	id1 := generateObservationID("rec1", "adapter1", "rule1")
+	id2 := generateObservationID("rec1", "adapter2", "rule1")
 	if id1 == id2 {
 		t.Errorf("different adapter_id should produce different ID: both %q", id1)
 	}
 }
 
 func TestGenerateObservationIDDifferentRule(t *testing.T) {
-	id1 := generateObservationID("rec1", "adapter1", "rule1", 0)
-	id2 := generateObservationID("rec1", "adapter1", "rule2", 0)
+	id1 := generateObservationID("rec1", "adapter1", "rule1")
+	id2 := generateObservationID("rec1", "adapter1", "rule2")
 	if id1 == id2 {
 		t.Errorf("different rule_id should produce different ID: both %q", id1)
+	}
+}
+
+func TestGenerateObservationIDDifferentRecord(t *testing.T) {
+	id1 := generateObservationID("rec1", "adapter1", "rule1")
+	id2 := generateObservationID("rec2", "adapter1", "rule1")
+	if id1 == id2 {
+		t.Errorf("different record_id should produce different ID: both %q", id1)
+	}
+}
+
+func TestObservationID_OrderIndependent(t *testing.T) {
+	a := &mockAdapter{id: "order.test", decode: func(Record) ([]Emission, error) {
+		return []Emission{
+			{Rule: "r1", Event: PlayerJoined{Player: Player{DisplayName: "A"}}},
+			{Rule: "r2", Event: PlayerLeft{Player: Player{DisplayName: "B"}}},
+		}, nil
+	}}
+	b := &mockAdapter{id: "order.test", decode: func(Record) ([]Emission, error) {
+		return []Emission{
+			{Rule: "r2", Event: PlayerLeft{Player: Player{DisplayName: "B"}}},
+			{Rule: "r1", Event: PlayerJoined{Player: Player{DisplayName: "A"}}},
+		}, nil
+	}}
+
+	engA, _ := NewEngine(a)
+	engB, _ := NewEngine(b)
+	rec := validRecord()
+
+	resultA := engA.Process(rec)
+	resultB := engB.Process(rec)
+
+	idsA := map[RuleID]ObservationID{}
+	for _, obs := range resultA.Observations {
+		idsA[obs.RuleID] = obs.ID
+	}
+	idsB := map[RuleID]ObservationID{}
+	for _, obs := range resultB.Observations {
+		idsB[obs.RuleID] = obs.ID
+	}
+
+	if idsA["r1"] != idsB["r1"] {
+		t.Errorf("r1 ID should be order-independent: %q vs %q", idsA["r1"], idsB["r1"])
+	}
+	if idsA["r2"] != idsB["r2"] {
+		t.Errorf("r2 ID should be order-independent: %q vs %q", idsA["r2"], idsB["r2"])
+	}
+}
+
+func TestObservationID_PayloadChangeDoesNotAffectID(t *testing.T) {
+	a := &mockAdapter{id: "payload.test", decode: func(Record) ([]Emission, error) {
+		return []Emission{{Rule: "r1", Event: PlayerJoined{Player: Player{DisplayName: "A"}}}}, nil
+	}}
+	b := &mockAdapter{id: "payload.test", decode: func(Record) ([]Emission, error) {
+		return []Emission{{Rule: "r1", Event: PlayerJoined{Player: Player{DisplayName: "DifferentName"}}}}, nil
+	}}
+
+	engA, _ := NewEngine(a)
+	engB, _ := NewEngine(b)
+	rec := validRecord()
+
+	resultA := engA.Process(rec)
+	resultB := engB.Process(rec)
+
+	if len(resultA.Observations) != 1 || len(resultB.Observations) != 1 {
+		t.Fatal("expected 1 observation each")
+	}
+	if resultA.Observations[0].ID != resultB.Observations[0].ID {
+		t.Errorf("payload change should not affect ID: %q vs %q",
+			resultA.Observations[0].ID, resultB.Observations[0].ID)
 	}
 }
 

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 )
@@ -244,6 +245,66 @@ func TestListLogFiles_SkipsNonRegular(t *testing.T) {
 	}
 	if files[0].Name != "output_log_real.txt" {
 		t.Errorf("expected output_log_real.txt, got %q", files[0].Name)
+	}
+}
+
+func TestListLogFilesStrict_SkipsNonRegular(t *testing.T) {
+	dir := t.TempDir()
+
+	if err := os.WriteFile(filepath.Join(dir, "output_log_real.txt"), []byte("test\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	subdir := filepath.Join(dir, "output_log_dir.txt")
+	if err := os.Mkdir(subdir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	files, err := ListLogFilesStrict(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(files) != 1 {
+		t.Fatalf("expected 1 file, got %d", len(files))
+	}
+	if files[0].Name != "output_log_real.txt" {
+		t.Errorf("expected output_log_real.txt, got %q", files[0].Name)
+	}
+}
+
+func TestListLogFilesStrict_PropagatesPermissionError(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("permission bits behave differently on windows")
+	}
+	if os.Getuid() == 0 {
+		t.Skip("skipping permission test when running as root")
+	}
+	dir := t.TempDir()
+
+	p := filepath.Join(dir, "output_log_2024-01-01_00-00-00.txt")
+	if err := os.WriteFile(p, []byte("test\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(p, 0000); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chmod(p, 0644)
+
+	_, err := ListLogFilesStrict(dir)
+	if err == nil {
+		t.Fatal("expected error for unreadable file, got nil")
+	}
+	if errors.Is(err, ErrNoLogFiles) {
+		t.Error("permission error should not be reported as ErrNoLogFiles")
+	}
+}
+
+func TestListLogFilesStrict_EmptyDir(t *testing.T) {
+	dir := t.TempDir()
+
+	_, err := ListLogFilesStrict(dir)
+	if !errors.Is(err, ErrNoLogFiles) {
+		t.Errorf("expected ErrNoLogFiles, got %v", err)
 	}
 }
 

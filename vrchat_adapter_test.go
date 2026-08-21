@@ -1,6 +1,7 @@
 package vrclog
 
 import (
+	"strings"
 	"testing"
 	"time"
 )
@@ -441,6 +442,179 @@ func TestVRChatAdapterNegativeCorpus(t *testing.T) {
 					tc.name, len(emissions), emissions[0].Rule, emissions[0].Event.Kind())
 			}
 		})
+	}
+}
+
+func TestVRChatAdapter_EmbeddedPrefixNegative(t *testing.T) {
+	negatives := []struct {
+		name string
+		msg  string
+	}{
+		{"embedded_video_playback", `[SomeUdon] copied: [Video Playback] Attempting to resolve URL 'https://youtu.be/FAKEVIDEOID1'`},
+		{"embedded_avpro_opening", `foo [AVProVideo] Opening https://example.invalid/video.mp4`},
+		{"embedded_behaviour", `Debug: [Behaviour] OnPlayerJoined Alice`},
+	}
+
+	a := NewVRChatAdapter()
+	for _, tc := range negatives {
+		t.Run(tc.name, func(t *testing.T) {
+			emissions, err := a.Decode(makeRecord(tc.msg))
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if len(emissions) != 0 {
+				t.Errorf("expected no emissions for embedded prefix %q, got %d", tc.name, len(emissions))
+			}
+		})
+	}
+}
+
+func TestVRChatAdapter_VideoResolveTrailingGarbageRejected(t *testing.T) {
+	a := NewVRChatAdapter()
+
+	tests := []struct {
+		name string
+		msg  string
+	}{
+		{
+			name: "resolve_attempt_trailing_text",
+			msg:  "[Video Playback] Attempting to resolve URL 'https://youtu.be/FAKEVIDEOID1' extra",
+		},
+		{
+			name: "resolved_trailing_text",
+			msg:  "[Video Playback] URL 'https://youtu.be/FAKEVIDEOID1' resolved to 'https://cdn.example.invalid/video.mp4' via proxy",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			emissions, err := a.Decode(makeRecord(tc.msg))
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if len(emissions) != 0 {
+				t.Errorf("expected no emissions for trailing garbage, got %d", len(emissions))
+			}
+		})
+	}
+}
+
+func TestVRChatAdapter_BackendAlwaysSet(t *testing.T) {
+	a := NewVRChatAdapter()
+
+	tests := []struct {
+		name        string
+		msg         string
+		wantBackend MediaBackend
+	}{
+		{
+			name:        "video_resolve_attempt",
+			msg:         "[Video Playback] Attempting to resolve URL 'https://youtu.be/FAKEVIDEOID1'",
+			wantBackend: MediaBackendUnknown,
+		},
+		{
+			name:        "video_resolved",
+			msg:         "[Video Playback] URL 'https://youtu.be/FAKEVIDEOID1' resolved to 'https://cdn.example.invalid/video.mp4'",
+			wantBackend: MediaBackendUnknown,
+		},
+		{
+			name:        "video_playback_error",
+			msg:         "[Video Playback] ERROR: something failed",
+			wantBackend: MediaBackendUnknown,
+		},
+		{
+			name:        "avpro_open",
+			msg:         "[AVProVideo] Opening https://example.invalid/video.mp4",
+			wantBackend: MediaBackendAVPro,
+		},
+		{
+			name:        "avpro_error",
+			msg:         "[AVProVideo] Error: something failed",
+			wantBackend: MediaBackendAVPro,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			emissions, err := a.Decode(makeRecord(tc.msg))
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if len(emissions) != 1 {
+				t.Fatalf("expected 1 emission, got %d", len(emissions))
+			}
+
+			var target *MediaTarget
+			switch ev := emissions[0].Event.(type) {
+			case ResourceURLObserved:
+				target = ev.Target
+			case ResourceResolved:
+				target = ev.Target
+			case MediaErrorObserved:
+				target = ev.Target
+			default:
+				t.Fatalf("unexpected event type %T", ev)
+			}
+
+			if target == nil {
+				t.Fatal("expected non-nil Target")
+			}
+			if target.Backend != tc.wantBackend {
+				t.Errorf("Backend = %q, want %q", target.Backend, tc.wantBackend)
+			}
+			if target.Backend == "" {
+				t.Error("Backend must never be empty")
+			}
+		})
+	}
+}
+
+func TestSanitizeErrorText_URLRedaction(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{
+			name:  "simple url",
+			input: "failed: https://example.invalid/video.mp4?sig=SECRET",
+			want:  "failed: <url>",
+		},
+		{
+			name:  "url with embedded control char",
+			input: "failed: https://evil.example/video?sig=abc\x01leaked-token",
+			want:  "failed: <url>",
+		},
+		{
+			name:  "no url",
+			input: "plain error text",
+			want:  "plain error text",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := sanitizeErrorText(tc.input)
+			if got != tc.want {
+				t.Errorf("sanitizeErrorText(%q) = %q, want %q", tc.input, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestSanitizeErrorText_BidiNormalization(t *testing.T) {
+	input := "safe\u202ereversed text"
+	got := sanitizeErrorText(input)
+	if strings.ContainsRune(got, '\u202e') {
+		t.Errorf("sanitizeErrorText should strip bidi override characters, got %q", got)
+	}
+}
+
+func TestSanitizeErrorText_ControlCharsNormalized(t *testing.T) {
+	input := "line1\ttabbed\nline2"
+	got := sanitizeErrorText(input)
+	if strings.ContainsAny(got, "\t\n") {
+		t.Errorf("sanitizeErrorText should normalize control characters, got %q", got)
 	}
 }
 

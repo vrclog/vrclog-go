@@ -6,6 +6,9 @@ func EncodeEvent(event Event) (EventKind, json.RawMessage, error) {
 	if event == nil {
 		return "", nil, ErrUnknownEventKind
 	}
+	if err := event.validate(); err != nil {
+		return "", nil, err
+	}
 	var (
 		kind     EventKind
 		data     []byte

@@ -4,7 +4,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"strconv"
 	"time"
 )
 
@@ -70,14 +69,12 @@ func DecodeObservationJSON(data []byte) (Observation, error) {
 	}, nil
 }
 
-func generateObservationID(recordID RecordID, adapterID AdapterID, ruleID RuleID, emissionIndex int) ObservationID {
+func generateObservationID(recordID RecordID, adapterID AdapterID, ruleID RuleID) ObservationID {
 	h := sha256.New()
 	h.Write([]byte(recordID))
 	h.Write([]byte{0})
 	h.Write([]byte(adapterID))
 	h.Write([]byte{0})
 	h.Write([]byte(ruleID))
-	h.Write([]byte{0})
-	h.Write([]byte(strconv.Itoa(emissionIndex)))
 	return ObservationID(hex.EncodeToString(h.Sum(nil)))
 }

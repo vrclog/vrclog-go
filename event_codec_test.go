@@ -20,7 +20,7 @@ func TestEncodeDecodeRoundTrip(t *testing.T) {
 			Input:  RemoteResource{URL: "https://youtube.com/watch?v=abc", Kind: ResourceKindVideo, Role: ResourceRoleResolverInput},
 			Output: RemoteResource{URL: "https://cdn.example.com/video.mp4", Kind: ResourceKindVideo, Role: ResourceRoleResolved},
 		},
-		MediaErrorObserved{Stage: MediaStageResolve, Message: "resolution failed", Target: &MediaTarget{Component: "vrchat"}},
+		MediaErrorObserved{Stage: MediaStageResolve, Message: "resolution failed", Target: &MediaTarget{Component: "vrchat", Backend: MediaBackendUnknown}},
 	}
 
 	for _, ev := range events {
@@ -95,6 +95,14 @@ func TestEncodeEventNil(t *testing.T) {
 	_, _, err := EncodeEvent(nil)
 	if err == nil {
 		t.Error("EncodeEvent(nil) should return error")
+	}
+}
+
+func TestEncodeEventInvalidEventRejected(t *testing.T) {
+	ev := PlayerJoined{Player: Player{DisplayName: ""}}
+	_, _, err := EncodeEvent(ev)
+	if err == nil {
+		t.Error("EncodeEvent with an invalid event (empty DisplayName) should fail validation")
 	}
 }
 

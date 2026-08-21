@@ -23,6 +23,20 @@ VRChat output_log_*.txt
     Observation           -- event + provenance (adapter, rule, record ref)
 ```
 
+`Observation.ID` is a deterministic identifier derived only from the
+record, adapter, and rule that produced it:
+
+```text
+observation_id = SHA-256(record_id + NUL + adapter_id + NUL + rule_id)
+```
+
+It does not depend on emission order, event payload, or timestamp, so the
+same logical observation always gets the same ID regardless of how many
+other emissions an adapter returned for the same record. An adapter that
+returns the same non-empty rule ID more than once for a single record has
+all of those emissions rejected (`duplicate_rule_id` diagnostic) rather
+than silently picking one.
+
 ## Install
 
 ```bash
@@ -134,6 +148,30 @@ func (a myAdapter) Decode(r vrclog.Record) ([]vrclog.Emission, error) {
 	return nil, nil
 }
 ```
+
+### LogSnapshot
+
+`CaptureLogSnapshot` captures the byte head of every currently existing
+VRChat log file so a downstream consumer (e.g. a companion process
+deciding what counts as "catch-up" history) can tell which bytes existed
+before the snapshot was taken:
+
+```go
+snap, err := vrclog.CaptureLogSnapshot("") // "" uses DefaultLogDirectory
+if err != nil {
+    // handle error
+}
+
+if snap.Contains(record) {
+    // record's bytes existed when the snapshot was captured
+}
+```
+
+`LogSnapshot` uses path-and-size semantics: it identifies a source by its
+normalized file path, not by a stable file incarnation. VRChat always
+creates uniquely timestamped log filenames, so this is not a concern in
+practice, but a file replaced at the exact same path with content at or
+above the captured size is indistinguishable from an untouched file.
 
 ## CLI
 

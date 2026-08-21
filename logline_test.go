@@ -25,7 +25,7 @@ func TestLineReader_LF(t *testing.T) {
 	}
 
 	for i, exp := range expected {
-		raw, _, offset, nextOffset, line, issue, err := lr.next()
+		raw, _, offset, nextOffset, line, _, issue, err := lr.next()
 		if err != nil {
 			t.Fatalf("line %d: unexpected error: %v", i+1, err)
 		}
@@ -46,7 +46,7 @@ func TestLineReader_LF(t *testing.T) {
 		}
 	}
 
-	_, _, _, _, _, _, err := lr.next()
+	_, _, _, _, _, _, _, err := lr.next()
 	if err != io.EOF {
 		t.Errorf("expected io.EOF, got %v", err)
 	}
@@ -56,7 +56,7 @@ func TestLineReader_CRLF(t *testing.T) {
 	input := "line1\r\nline2\r\n"
 	lr := newLineReader(strings.NewReader(input), 0, 1)
 
-	raw, _, offset, nextOffset, line, _, err := lr.next()
+	raw, _, offset, nextOffset, line, _, _, err := lr.next()
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -67,7 +67,7 @@ func TestLineReader_CRLF(t *testing.T) {
 		t.Errorf("offset=%d nextOffset=%d line=%d, want 0, 7, 1", offset, nextOffset, line)
 	}
 
-	raw, _, offset, nextOffset, line, _, err = lr.next()
+	raw, _, offset, nextOffset, line, _, _, err = lr.next()
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -83,7 +83,7 @@ func TestLineReader_FinalLineNoTerminator(t *testing.T) {
 	input := "line1\nline2"
 	lr := newLineReader(strings.NewReader(input), 0, 1)
 
-	raw, _, _, _, _, _, err := lr.next()
+	raw, _, _, _, _, _, _, err := lr.next()
 	if err != nil {
 		t.Fatalf("line 1: unexpected error: %v", err)
 	}
@@ -91,7 +91,7 @@ func TestLineReader_FinalLineNoTerminator(t *testing.T) {
 		t.Errorf("line 1: raw = %q, want %q", string(raw), "line1")
 	}
 
-	raw, _, offset, nextOffset, line, _, err := lr.next()
+	raw, _, offset, nextOffset, line, _, _, err := lr.next()
 	if err != nil {
 		t.Fatalf("line 2: unexpected error: %v", err)
 	}
@@ -102,7 +102,7 @@ func TestLineReader_FinalLineNoTerminator(t *testing.T) {
 		t.Errorf("offset=%d nextOffset=%d line=%d, want 6, 11, 2", offset, nextOffset, line)
 	}
 
-	_, _, _, _, _, _, err = lr.next()
+	_, _, _, _, _, _, _, err = lr.next()
 	if err != io.EOF {
 		t.Errorf("expected io.EOF, got %v", err)
 	}
@@ -112,7 +112,7 @@ func TestLineReader_BlankLine(t *testing.T) {
 	input := "line1\n\nline3\n"
 	lr := newLineReader(strings.NewReader(input), 0, 1)
 
-	raw, _, _, _, _, _, err := lr.next()
+	raw, _, _, _, _, _, _, err := lr.next()
 	if err != nil {
 		t.Fatalf("line 1 error: %v", err)
 	}
@@ -120,7 +120,7 @@ func TestLineReader_BlankLine(t *testing.T) {
 		t.Errorf("line 1 raw = %q, want %q", string(raw), "line1")
 	}
 
-	raw, _, offset, nextOffset, line, _, err := lr.next()
+	raw, _, offset, nextOffset, line, _, _, err := lr.next()
 	if err != nil {
 		t.Fatalf("line 2 error: %v", err)
 	}
@@ -131,7 +131,7 @@ func TestLineReader_BlankLine(t *testing.T) {
 		t.Errorf("blank: offset=%d nextOffset=%d line=%d, want 6, 7, 2", offset, nextOffset, line)
 	}
 
-	raw, _, _, _, _, _, err = lr.next()
+	raw, _, _, _, _, _, _, err = lr.next()
 	if err != nil {
 		t.Fatalf("line 3 error: %v", err)
 	}
@@ -154,7 +154,7 @@ func TestLineReader_OffsetAccuracy(t *testing.T) {
 	}
 
 	for i, exp := range expected {
-		_, _, offset, nextOffset, _, _, err := lr.next()
+		_, _, offset, nextOffset, _, _, _, err := lr.next()
 		if err != nil {
 			t.Fatalf("line %d: %v", i+1, err)
 		}
@@ -170,7 +170,7 @@ func TestLineReader_LineNumbering(t *testing.T) {
 	lr := newLineReader(strings.NewReader(input), 0, 1)
 
 	for i := uint64(1); i <= 3; i++ {
-		_, _, _, _, line, _, err := lr.next()
+		_, _, _, _, line, _, _, err := lr.next()
 		if err != nil {
 			t.Fatalf("line %d: %v", i, err)
 		}
@@ -184,7 +184,7 @@ func TestLineReader_StartingOffset(t *testing.T) {
 	input := "hello\n"
 	lr := newLineReader(strings.NewReader(input), 100, 5)
 
-	_, _, offset, nextOffset, line, _, err := lr.next()
+	_, _, offset, nextOffset, line, _, _, err := lr.next()
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -239,7 +239,7 @@ func TestLineReader_RawHash(t *testing.T) {
 	input := "hello\n"
 	lr := newLineReader(strings.NewReader(input), 0, 1)
 
-	_, rawHash, _, _, _, _, err := lr.next()
+	_, rawHash, _, _, _, _, _, err := lr.next()
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -256,7 +256,7 @@ func TestLineReader_RawHashCRLF(t *testing.T) {
 	input := "hello\r\n"
 	lr := newLineReader(strings.NewReader(input), 0, 1)
 
-	_, rawHash, _, _, _, _, err := lr.next()
+	_, rawHash, _, _, _, _, _, err := lr.next()
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -273,7 +273,7 @@ func TestLineReader_RawHashNoTerminator(t *testing.T) {
 	input := "hello"
 	lr := newLineReader(strings.NewReader(input), 0, 1)
 
-	_, rawHash, _, _, _, _, err := lr.next()
+	_, rawHash, _, _, _, _, _, err := lr.next()
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -293,7 +293,7 @@ func TestLineReader_OversizedLine(t *testing.T) {
 
 	lr := newLineReader(bytes.NewReader(input), 0, 1)
 
-	raw, rawHash, offset, nextOffset, line, issue, err := lr.next()
+	raw, rawHash, offset, nextOffset, line, _, issue, err := lr.next()
 	if err != nil {
 		t.Fatalf("oversized line error: %v", err)
 	}
@@ -324,7 +324,7 @@ func TestLineReader_OversizedLine(t *testing.T) {
 	}
 
 	// Next line should read correctly
-	raw, _, offset, nextOffset, line, issue, err = lr.next()
+	raw, _, offset, nextOffset, line, _, issue, err = lr.next()
 	if err != nil {
 		t.Fatalf("next line after oversized: error = %v", err)
 	}
@@ -350,7 +350,7 @@ func TestLineReader_InvalidUTF8(t *testing.T) {
 	invalidBytes := []byte{0x80, 0x81, 0x82, '\n'}
 	lr := newLineReader(bytes.NewReader(invalidBytes), 0, 1)
 
-	raw, rawHash, _, _, _, _, err := lr.next()
+	raw, rawHash, _, _, _, _, _, err := lr.next()
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -370,7 +370,7 @@ func TestLineReader_InvalidUTF8(t *testing.T) {
 func TestLineReader_EmptyInput(t *testing.T) {
 	lr := newLineReader(strings.NewReader(""), 0, 1)
 
-	_, _, _, _, _, _, err := lr.next()
+	_, _, _, _, _, _, _, err := lr.next()
 	if err != io.EOF {
 		t.Errorf("expected io.EOF for empty input, got %v", err)
 	}

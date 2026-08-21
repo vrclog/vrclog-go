@@ -66,7 +66,23 @@ func DefaultLogDirectory() (string, error) {
 	return "", fmt.Errorf("%w: VRChat log directory not found", ErrNoLogDirectory)
 }
 
+// ListLogFiles lists VRChat output_log files, sorted oldest-first.
+// A candidate file that cannot be opened as a regular file is silently
+// skipped. Use ListLogFilesStrict when silent skips must not hide
+// permission, race, or non-regular-file errors on matched candidates.
 func ListLogFiles(dir string) ([]LogFileInfo, error) {
+	return listLogFiles(dir, false)
+}
+
+// ListLogFilesStrict lists VRChat output_log files, sorted oldest-first.
+// Unlike ListLogFiles, an OpenRegular failure on a matched candidate is
+// propagated as an error instead of being silently skipped, except when
+// the failure is ErrNotRegularFile (symlinks/directories are tolerated).
+func ListLogFilesStrict(dir string) ([]LogFileInfo, error) {
+	return listLogFiles(dir, true)
+}
+
+func listLogFiles(dir string, strict bool) ([]LogFileInfo, error) {
 	absDir, err := filepath.Abs(dir)
 	if err != nil {
 		return nil, err
@@ -107,6 +123,9 @@ func ListLogFiles(dir string) ([]LogFileInfo, error) {
 	for _, m := range matches {
 		f, info, err := OpenRegular(m)
 		if err != nil {
+			if strict && !errors.Is(err, ErrNotRegularFile) {
+				return nil, fmt.Errorf("open %s: %w", m, err)
+			}
 			continue
 		}
 		f.Close()

@@ -8,6 +8,7 @@ const (
 	DiagnosticInvalidAdapterResult DiagnosticCode = "invalid_adapter_result"
 	DiagnosticInvalidRuleID        DiagnosticCode = "invalid_rule_id"
 	DiagnosticInvalidEvent         DiagnosticCode = "invalid_event"
+	DiagnosticDuplicateRuleID      DiagnosticCode = "duplicate_rule_id"
 )
 
 type Diagnostic struct {

@@ -333,6 +333,31 @@ func TestReadFile_EmptyFile(t *testing.T) {
 	}
 }
 
+func TestReadFile_UnterminatedFinalLine(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "unterminated.txt")
+	content := "2026.08.18 12:00:00 Log        -  [Behaviour] Entering Room: Test World\n" +
+		"2026.08.18 12:00:01 Log        -  [Behaviour] OnPlayerJoined TestUser"
+	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	var records []Record
+	for rec, err := range ReadFile(context.Background(), ReadFileConfig{Path: path}) {
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		records = append(records, rec)
+	}
+
+	if len(records) != 2 {
+		t.Fatalf("got %d records, want 2 (ReadFile must flush the unterminated final line)", len(records))
+	}
+	if records[1].Message != "[Behaviour] OnPlayerJoined TestUser" {
+		t.Errorf("records[1].Message = %q, want %q", records[1].Message, "[Behaviour] OnPlayerJoined TestUser")
+	}
+}
+
 func TestReadFile_RelativePathYieldsAbsolutePath(t *testing.T) {
 	dir := t.TempDir()
 	path := writeLog(t, dir, "line1")

@@ -13,4 +13,11 @@ var (
 	ErrDuplicateAdapterID  = errors.New("duplicate adapter ID")
 	ErrInvalidAdapterID    = errors.New("invalid adapter ID")
 	ErrInvalidOffset       = errors.New("invalid offset")
+
+	// ErrSourceTruncated is returned when an actively-followed log
+	// file's size drops below the offset Follow has already committed.
+	// This can happen if the file is truncated or replaced out from
+	// under Follow. Follow treats this as fatal: it does not rewind the
+	// cursor or silently restart from the beginning of the file.
+	ErrSourceTruncated = errors.New("log source truncated")
 )
