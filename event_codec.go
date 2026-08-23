@@ -1,21 +1,31 @@
 package vrclog
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"fmt"
+)
 
 func EncodeEvent(event Event) (EventKind, json.RawMessage, error) {
 	if event == nil {
 		return "", nil, ErrUnknownEventKind
 	}
-	if err := event.validate(); err != nil {
+	// Normalize pointer forms to values (and reject typed-nil pointers)
+	// before validating: all eight canonical Event types have value
+	// receivers, so a pointer form would otherwise fall through the type
+	// switch below as an unencodable ErrUnknownEventKind.
+	normalized, err := detachEventForObservation(event)
+	if err != nil {
+		return "", nil, err
+	}
+	if err := normalized.validate(); err != nil {
 		return "", nil, err
 	}
 	var (
 		kind     EventKind
 		data     []byte
-		err      error
 		mismatch bool
 	)
-	switch e := event.(type) {
+	switch e := normalized.(type) {
 	case PlayerJoined:
 		kind = EventKindPlayerJoined
 		mismatch = e.Kind() != kind
@@ -42,6 +52,10 @@ func EncodeEvent(event Event) (EventKind, json.RawMessage, error) {
 		data, err = json.Marshal(e)
 	case MediaErrorObserved:
 		kind = EventKindMediaErrorObserved
+		mismatch = e.Kind() != kind
+		data, err = json.Marshal(e)
+	case AdapterEvent:
+		kind = EventKindAdapter
 		mismatch = e.Kind() != kind
 		data, err = json.Marshal(e)
 	default:
@@ -88,6 +102,16 @@ func DecodeEvent(kind EventKind, payload []byte) (Event, error) {
 		event = e
 	case EventKindMediaErrorObserved:
 		var e MediaErrorObserved
+		err = json.Unmarshal(payload, &e)
+		event = e
+	case EventKindAdapter:
+		// Reject an oversized envelope before unmarshaling: without this,
+		// an attacker-controlled payload is fully allocated by
+		// json.Unmarshal before validate()'s size check ever runs.
+		if len(payload) > maxAdapterPayloadBytes {
+			return nil, fmt.Errorf("adapter event payload exceeds %d bytes", maxAdapterPayloadBytes)
+		}
+		var e AdapterEvent
 		err = json.Unmarshal(payload, &e)
 		event = e
 	default:

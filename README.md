@@ -17,7 +17,7 @@ VRChat output_log_*.txt
       Engine              -- runs all registered Adapters
         |
         v
-   canonical Event        -- 7 sealed types (player, world, resource, media)
+   canonical Event        -- 8 sealed types (player, world, resource, media, adapter)
         |
         v
     Observation           -- event + provenance (adapter, rule, record ref)
@@ -129,9 +129,13 @@ func main() {
 
 ### Custom Adapter
 
-Community adapters must return one of the 7 canonical `Event` types defined by
-this package. The `Event` interface is sealed -- you cannot define your own
-event type.
+Community adapters must return one of the 8 canonical `Event` types defined by
+this package: `PlayerJoined`, `PlayerLeft`, `WorldEnteringObserved`,
+`WorldJoiningObserved`, `ResourceURLObserved`, `ResourceResolved`,
+`MediaErrorObserved`, or `AdapterEvent`. The `Event` interface is sealed, so
+external packages cannot define their own event types. `AdapterEvent` is the
+size- and shape-constrained envelope for structured world-specific data that
+does not map to the other canonical types.
 
 ```go
 type myAdapter struct{}
@@ -197,6 +201,11 @@ derived from:
   user ID via patterns like `~private(usr_xxx)`
 - **Media URLs** -- video/image URLs that may include time-limited signed
   authentication tokens (e.g. `sig=`, `lsig=`, `expire=`)
+- **`AdapterEvent.Data`** -- adapter-defined JSON that may contain
+  world-specific identifiers, PII, tokens, or other secrets if an external
+  Adapter includes them. `vrclog-go` cannot inspect the semantics of this
+  field; Adapter authors are responsible for not emitting credentials or
+  session data through it.
 
 Treat Observation JSON with the same care as raw log files. Do not publish,
 share, or commit it carelessly.

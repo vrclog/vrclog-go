@@ -21,6 +21,7 @@ func TestEncodeDecodeRoundTrip(t *testing.T) {
 			Output: RemoteResource{URL: "https://cdn.example.com/video.mp4", Kind: ResourceKindVideo, Role: ResourceRoleResolved},
 		},
 		MediaErrorObserved{Stage: MediaStageResolve, Message: "resolution failed", Target: &MediaTarget{Component: "vrchat", Backend: MediaBackendUnknown}},
+		AdapterEvent{Tag: "vrpoker.hole_cards.v1", Data: json.RawMessage(`{"card1":"Jc","card2":"6d"}`)},
 	}
 
 	for _, ev := range events {
@@ -161,6 +162,7 @@ func TestEncodeDecodeAllEventKinds(t *testing.T) {
 		EventKindResourceURLObserved:   false,
 		EventKindResourceResolved:      false,
 		EventKindMediaErrorObserved:    false,
+		EventKindAdapter:               false,
 	}
 
 	events := []Event{
@@ -174,6 +176,7 @@ func TestEncodeDecodeAllEventKinds(t *testing.T) {
 			Output: RemoteResource{URL: "https://b", Kind: ResourceKindVideo, Role: ResourceRoleResolved},
 		},
 		MediaErrorObserved{Stage: MediaStageLoad, Code: "E1"},
+		AdapterEvent{Tag: "vrpoker.hole_cards.v1", Data: json.RawMessage(`{"card1":"Jc","card2":"6d"}`)},
 	}
 
 	for _, ev := range events {
@@ -193,5 +196,42 @@ func TestEncodeDecodeAllEventKinds(t *testing.T) {
 		if !covered {
 			t.Errorf("EventKind %q was not covered", k)
 		}
+	}
+}
+
+func TestEncodeEventNormalizesPointerForm(t *testing.T) {
+	value := AdapterEvent{Tag: "vrpoker.hole_cards.v1", Data: json.RawMessage(`{"card1":"Jc"}`)}
+	kindFromValue, payloadFromValue, err := EncodeEvent(value)
+	if err != nil {
+		t.Fatalf("EncodeEvent(value) error = %v", err)
+	}
+
+	kindFromPointer, payloadFromPointer, err := EncodeEvent(&value)
+	if err != nil {
+		t.Fatalf("EncodeEvent(pointer) error = %v", err)
+	}
+
+	if kindFromPointer != kindFromValue {
+		t.Errorf("kind mismatch: pointer form = %q, value form = %q", kindFromPointer, kindFromValue)
+	}
+	if string(payloadFromPointer) != string(payloadFromValue) {
+		t.Errorf("payload mismatch: pointer form = %s, value form = %s", payloadFromPointer, payloadFromValue)
+	}
+}
+
+func TestEncodeEventRejectsTypedNilPointer(t *testing.T) {
+	var nilEvent *AdapterEvent
+	if _, _, err := EncodeEvent(nilEvent); err == nil {
+		t.Fatal("expected EncodeEvent to reject a typed-nil pointer, got nil error")
+	}
+}
+
+func TestDecodeEventRejectsOversizedAdapterPayload(t *testing.T) {
+	oversized := make([]byte, maxAdapterPayloadBytes+1)
+	for i := range oversized {
+		oversized[i] = 'a'
+	}
+	if _, err := DecodeEvent(EventKindAdapter, oversized); err == nil {
+		t.Fatal("expected DecodeEvent to reject an oversized adapter event payload, got nil error")
 	}
 }

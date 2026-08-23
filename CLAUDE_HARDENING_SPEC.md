@@ -23,6 +23,7 @@ Observation / Diagnostic
 ```
 
 旧Parser、ParserChain、YAML RegexParser、runtime plugin、WASM、任意event mapは復活させない。
+`AdapterEvent`はこの不変条件に対する明示的かつ唯一の例外であり、外部Adapter向けにsizeとshapeを制限したextension envelopeとしてのみ許可する。
 
 互換性維持は不要である。公開APIを変更してよい。ただし、APIを増やす場合は今回の不変条件を実現する最小限に絞る。
 

@@ -1,6 +1,8 @@
 package vrclog
 
 import (
+	"bytes"
+	"encoding/json"
 	"errors"
 	"testing"
 	"time"
@@ -409,5 +411,115 @@ func TestProcessObservationFields(t *testing.T) {
 	}
 	if obs.Record.Line != rec.Line {
 		t.Errorf("Record.Line = %d, want %d", obs.Record.Line, rec.Line)
+	}
+}
+
+func TestProcessClonesAdapterEventData(t *testing.T) {
+	data := json.RawMessage(`{"card1":"Jc","card2":"6d"}`)
+	want := bytes.Clone(data)
+	a := &mockAdapter{id: "external.vrpoker", decode: func(Record) ([]Emission, error) {
+		return []Emission{{
+			Rule:  "hole_cards",
+			Event: AdapterEvent{Tag: "vrpoker.hole_cards.v1", Data: data},
+		}}, nil
+	}}
+	eng, err := NewEngine(a)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	result := eng.Process(validRecord())
+	if len(result.Observations) != 1 {
+		t.Fatalf("expected 1 observation, got %d", len(result.Observations))
+	}
+	data[2] = 'X'
+
+	event, ok := result.Observations[0].Event.(AdapterEvent)
+	if !ok {
+		t.Fatalf("observation event type = %T, want AdapterEvent", result.Observations[0].Event)
+	}
+	if !bytes.Equal(event.Data, want) {
+		t.Errorf("observation data = %s, want %s", event.Data, want)
+	}
+}
+
+// TestProcessTypedNilEventRejected verifies that a typed-nil pointer Event
+// (e.g. (*AdapterEvent)(nil)) is rejected as a diagnostic rather than
+// panicking. An interface holding a nil pointer of a concrete type is not
+// == nil, so it passes the initial nil check; without detachment it would
+// reach a value-receiver method call and panic on the implicit dereference.
+func TestProcessTypedNilEventRejected(t *testing.T) {
+	cases := []struct {
+		name  string
+		event Event
+	}{
+		{"PlayerJoined", (*PlayerJoined)(nil)},
+		{"PlayerLeft", (*PlayerLeft)(nil)},
+		{"WorldEnteringObserved", (*WorldEnteringObserved)(nil)},
+		{"WorldJoiningObserved", (*WorldJoiningObserved)(nil)},
+		{"ResourceURLObserved", (*ResourceURLObserved)(nil)},
+		{"ResourceResolved", (*ResourceResolved)(nil)},
+		{"MediaErrorObserved", (*MediaErrorObserved)(nil)},
+		{"AdapterEvent", (*AdapterEvent)(nil)},
+	}
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			a := &mockAdapter{id: "external.evil", decode: func(Record) ([]Emission, error) {
+				return []Emission{{Rule: "boom", Event: tt.event}}, nil
+			}}
+			eng, err := NewEngine(a)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			result := eng.Process(validRecord())
+
+			if len(result.Observations) != 0 {
+				t.Errorf("expected 0 observations, got %d", len(result.Observations))
+			}
+			if len(result.Diagnostics) != 1 {
+				t.Fatalf("expected 1 diagnostic, got %d", len(result.Diagnostics))
+			}
+			if result.Diagnostics[0].Code != DiagnosticInvalidEvent {
+				t.Errorf("diagnostic code = %v, want %v", result.Diagnostics[0].Code, DiagnosticInvalidEvent)
+			}
+		})
+	}
+}
+
+// TestProcessPointerFormAdapterEventIsClonedAndEncodable verifies that an
+// Adapter returning a pointer-typed AdapterEvent (&AdapterEvent{...}) is
+// normalized to a value, its Data detached from the adapter-owned slice,
+// and remains encodable through the standard Observation JSON codec.
+func TestProcessPointerFormAdapterEventIsClonedAndEncodable(t *testing.T) {
+	data := json.RawMessage(`{"card1":"Jc","card2":"6d"}`)
+	want := bytes.Clone(data)
+	a := &mockAdapter{id: "external.vrpoker", decode: func(Record) ([]Emission, error) {
+		return []Emission{{
+			Rule:  "hole_cards",
+			Event: &AdapterEvent{Tag: "vrpoker.hole_cards.v1", Data: data},
+		}}, nil
+	}}
+	eng, err := NewEngine(a)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	result := eng.Process(validRecord())
+	if len(result.Observations) != 1 {
+		t.Fatalf("expected 1 observation, got %d (diagnostics: %+v)", len(result.Observations), result.Diagnostics)
+	}
+	data[2] = 'X'
+
+	event, ok := result.Observations[0].Event.(AdapterEvent)
+	if !ok {
+		t.Fatalf("observation event type = %T, want AdapterEvent", result.Observations[0].Event)
+	}
+	if !bytes.Equal(event.Data, want) {
+		t.Errorf("observation data = %s, want %s", event.Data, want)
+	}
+
+	if _, err := EncodeObservationJSON(result.Observations[0]); err != nil {
+		t.Errorf("EncodeObservationJSON() error = %v, want nil", err)
 	}
 }

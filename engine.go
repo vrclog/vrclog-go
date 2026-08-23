@@ -129,7 +129,19 @@ func (e *Engine) Process(record Record) Result {
 				continue
 			}
 
-			if vErr := em.Event.validate(); vErr != nil {
+			event, detachErr := detachEventForObservation(em.Event)
+			if detachErr != nil {
+				result.Diagnostics = append(result.Diagnostics, Diagnostic{
+					Code:      DiagnosticInvalidEvent,
+					Message:   detachErr.Error(),
+					AdapterID: adapter.ID(),
+					RuleID:    em.Rule,
+					Record:    ref,
+				})
+				continue
+			}
+
+			if vErr := event.validate(); vErr != nil {
 				result.Diagnostics = append(result.Diagnostics, Diagnostic{
 					Code:      DiagnosticInvalidEvent,
 					Message:   vErr.Error(),
@@ -157,7 +169,7 @@ func (e *Engine) Process(record Record) Result {
 				AdapterID: adapter.ID(),
 				RuleID:    em.Rule,
 				Record:    ref,
-				Event:     em.Event,
+				Event:     event,
 			}
 			result.Observations = append(result.Observations, obs)
 		}
