@@ -143,10 +143,10 @@ func TestAdapterEventValidateDataEscapedBidi(t *testing.T) {
 		name string
 		data json.RawMessage
 	}{
-		{name: "escaped bidi in string value", data: json.RawMessage(`{"label":"safe‮fake"}`)},
-		{name: "escaped bidi in object key", data: json.RawMessage(`{"safe‮fake":"value"}`)},
-		{name: "escaped bidi inside nested array", data: json.RawMessage(`{"items":["ok","safe‮fake"]}`)},
-		{name: "escaped bidi inside nested object", data: json.RawMessage(`{"a":{"b":"safe‮fake"}}`)},
+		{name: "escaped bidi in string value", data: json.RawMessage(`{"label":"safe\u202efake"}`)},
+		{name: "escaped bidi in object key", data: json.RawMessage(`{"safe\u202efake":"value"}`)},
+		{name: "escaped bidi inside nested array", data: json.RawMessage(`{"items":["ok","safe\u202efake"]}`)},
+		{name: "escaped bidi inside nested object", data: json.RawMessage(`{"a":{"b":"safe\u202efake"}}`)},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

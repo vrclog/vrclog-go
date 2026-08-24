@@ -52,7 +52,7 @@ func (e AdapterEvent) validate() error {
 
 	// Validate the *decoded* JSON value in a single pass, not the raw
 	// bytes: a raw-byte scan for unsafe characters would miss a JSON
-	// escape sequence like ‮, which is inert ASCII in the raw form
+	// escape sequence like \u202e, which is inert ASCII in the raw form
 	// but becomes an actual bidi override character once a downstream
 	// consumer decodes it.
 	decoder := json.NewDecoder(bytes.NewReader(e.Data))
