@@ -14,4 +14,5 @@ const (
 	EventKindResourceURLObserved   EventKind = "resource.url_observed"
 	EventKindResourceResolved      EventKind = "resource.resolved"
 	EventKindMediaErrorObserved    EventKind = "media.error_observed"
+	EventKindAdapter               EventKind = "adapter.event"
 )

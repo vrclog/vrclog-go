@@ -81,7 +81,8 @@ VRChat output_log_*.txt -> Read/Follow -> Record -> Engine (Adapters) -> Event -
 - **Record**: A single physical log line with timestamp, level, message, raw text, SHA-256 based `RecordID`, file position (`Offset`/`NextOffset`/`Line`), and `SourceID`.
 - **Adapter**: Stateless, pure function that inspects a `Record` and returns zero or more `Emission`s (each a `RuleID` + `Event`). Implements `ID() AdapterID` and `Decode(Record) ([]Emission, error)`.
 - **Engine**: Holds registered `Adapter`s. `Process(Record) Result` runs **all** adapters for every record (no first-match), produces `Observation`s and `Diagnostic`s.
-- **Event**: Sealed interface with 7 canonical concrete types: `PlayerJoined`, `PlayerLeft`, `WorldEnteringObserved`, `WorldJoiningObserved`, `ResourceURLObserved`, `ResourceResolved`, `MediaErrorObserved`.
+- **Event**: Sealed interface with 8 canonical concrete types: `PlayerJoined`, `PlayerLeft`, `WorldEnteringObserved`, `WorldJoiningObserved`, `ResourceURLObserved`, `ResourceResolved`, `MediaErrorObserved`, `AdapterEvent`.
+- **AdapterEvent**: Size- and shape-constrained extension envelope for structured external-Adapter data that cannot map to the other canonical Event types.
 - **Observation**: Event + provenance (`AdapterID`, `RuleID`, `RecordRef`). Deterministic `ObservationID` derived from SHA-256.
 - **Cursor**: File position bookmark (`SourceID`, `Path`, `Offset`, `Line`) — not time-based.
 

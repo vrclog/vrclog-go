@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `AdapterEvent`, the sole size- and shape-constrained extension envelope for
+  structured external-Adapter data that cannot map to the other seven
+  canonical Event types.
+
 ### Changed (Breaking) — Data integrity hardening
 
 Follow-up hardening pass fixing several data-integrity gaps in the
